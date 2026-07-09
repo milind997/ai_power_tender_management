@@ -1,0 +1,22 @@
+{
+ "content": null,
+ "creation": "2026-07-07 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-07-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ai_power_tender_management",
+ "name": "tender-upload",
+ "owner": "Administrator",
+ "page_name": "tender-upload",
+ "restrict_to_domain": null,
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ],
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Tender Upload"
+}

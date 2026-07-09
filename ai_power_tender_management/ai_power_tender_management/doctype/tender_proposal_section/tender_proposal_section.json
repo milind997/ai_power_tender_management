@@ -1,0 +1,73 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-07 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_type",
+  "title",
+  "status",
+  "confirmed",
+  "content",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Section Type",
+   "options": "Scope Understanding\nMethodology\nImplementation Plan\nPrimavera Style Timeline\nEquipment List\nOrganization Chart\nQA/QC Plan\nHSE Plan\nCompliance Matrix\nRisk Summary",
+   "columns": 2,
+   "reqd": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "columns": 2
+  },
+  {
+   "default": "Not Generated",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Not Generated\nGenerated\nReviewed\nApproved",
+   "columns": 2
+  },
+  {
+   "default": "0",
+   "fieldname": "confirmed",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Confirmed",
+   "columns": 1
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Text Editor",
+   "label": "Content (Arabic)"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ai_power_tender_management",
+ "name": "Tender Proposal Section",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

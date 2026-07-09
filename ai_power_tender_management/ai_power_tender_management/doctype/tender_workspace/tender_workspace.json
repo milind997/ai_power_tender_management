@@ -1,0 +1,288 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "TND-.#####",
+ "creation": "2026-07-07 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "details_tab",
+  "basic_section",
+  "tender_name",
+  "tender_number",
+  "client_name",
+  "column_break_basic",
+  "portal_source",
+  "closing_date",
+  "closing_time",
+  "reviewer",
+  "key_details_section",
+  "tender_type",
+  "location",
+  "key_details_col",
+  "bid_bond_amount",
+  "estimated_value",
+  "status_section",
+  "status",
+  "notes_section",
+  "notes",
+  "documents_section",
+  "uploaded_documents",
+  "ai_tab",
+  "ai_section",
+  "ai_summary",
+  "boq_tab",
+  "boq_section",
+  "boq_items",
+  "boq_totals_section",
+  "boq_currency",
+  "boq_subtotal",
+  "boq_totals_column_break",
+  "vat_rate",
+  "vat_amount",
+  "boq_grand_total",
+  "proposal_tab",
+  "proposal_section",
+  "proposal_sections"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Info & Documents"
+  },
+  {
+   "fieldname": "basic_section",
+   "fieldtype": "Section Break",
+   "label": "Tender Basic Info"
+  },
+  {
+   "fieldname": "tender_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tender Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tender_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tender Number"
+  },
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Client Name"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "portal_source",
+   "fieldtype": "Select",
+   "label": "Portal Source",
+   "options": "\nEtimad\nNWC Portal\nSAP Ariba\nOther"
+  },
+  {
+   "fieldname": "closing_date",
+   "fieldtype": "Date",
+   "label": "Closing Date"
+  },
+  {
+   "fieldname": "closing_time",
+   "fieldtype": "Time",
+   "label": "Closing Time"
+  },
+  {
+   "fieldname": "reviewer",
+   "fieldtype": "Link",
+   "label": "Reviewer",
+   "options": "User"
+  },
+  {
+   "fieldname": "key_details_section",
+   "fieldtype": "Section Break",
+   "label": "Key Details",
+   "description": "Auto-filled from the tender document via the \"Extract Tender Info\" action."
+  },
+  {
+   "fieldname": "tender_type",
+   "fieldtype": "Select",
+   "label": "Tender Type",
+   "options": "\nSupply\nWorks\nServices\nConsultancy\nOther"
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Location / City"
+  },
+  {
+   "fieldname": "key_details_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bid_bond_amount",
+   "fieldtype": "Currency",
+   "label": "Bid Bond / Guarantee"
+  },
+  {
+   "fieldname": "estimated_value",
+   "fieldtype": "Currency",
+   "label": "Estimated Value"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "default": "Draft",
+   "description": "Set automatically as the tender moves through the workflow. Use the Status buttons in the toolbar to mark it Reviewed or Submitted.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nDocuments Uploaded\nAI Analyzed\nBOQ Extracted\nProposal Drafted\nReviewed\nSubmitted",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "documents_section",
+   "fieldtype": "Section Break",
+   "label": "Uploaded Documents"
+  },
+  {
+   "fieldname": "uploaded_documents",
+   "fieldtype": "Table",
+   "label": "Uploaded Documents",
+   "options": "Tender Document Item"
+  },
+  {
+   "fieldname": "ai_tab",
+   "fieldtype": "Tab Break",
+   "label": "AI Summary"
+  },
+  {
+   "fieldname": "ai_section",
+   "fieldtype": "Section Break",
+   "label": "AI Summary"
+  },
+  {
+   "fieldname": "ai_summary",
+   "fieldtype": "Table",
+   "label": "AI Summary",
+   "options": "Tender AI Summary"
+  },
+  {
+   "fieldname": "boq_tab",
+   "fieldtype": "Tab Break",
+   "label": "BOQ"
+  },
+  {
+   "fieldname": "boq_section",
+   "fieldtype": "Section Break",
+   "label": "BOQ Items"
+  },
+  {
+   "fieldname": "boq_items",
+   "fieldtype": "Table",
+   "label": "BOQ Items",
+   "options": "Tender BOQ Item"
+  },
+  {
+   "fieldname": "boq_totals_section",
+   "fieldtype": "Section Break",
+   "label": "BOQ Totals"
+  },
+  {
+   "default": "SAR",
+   "fieldname": "boq_currency",
+   "fieldtype": "Data",
+   "label": "BOQ Currency"
+  },
+  {
+   "fieldname": "boq_subtotal",
+   "fieldtype": "Currency",
+   "label": "BOQ Subtotal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "boq_totals_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "15",
+   "fieldname": "vat_rate",
+   "fieldtype": "Float",
+   "label": "VAT Rate (%)"
+  },
+  {
+   "fieldname": "vat_amount",
+   "fieldtype": "Currency",
+   "label": "VAT Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "boq_grand_total",
+   "fieldtype": "Currency",
+   "label": "BOQ Grand Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "proposal_tab",
+   "fieldtype": "Tab Break",
+   "label": "Proposal"
+  },
+  {
+   "fieldname": "proposal_section",
+   "fieldtype": "Section Break",
+   "label": "Proposal Sections"
+  },
+  {
+   "fieldname": "proposal_sections",
+   "fieldtype": "Table",
+   "label": "Proposal Sections",
+   "options": "Tender Proposal Section"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ai_power_tender_management",
+ "name": "Tender Workspace",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "tender_name",
+ "track_changes": 1
+}
