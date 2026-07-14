@@ -163,13 +163,13 @@ def ocr_pdf_text(file_url: str, langs: str = "ara+eng", dpi: int = 200) -> str:
 # Header keywords used to map spreadsheet columns onto BOQ fields.
 _COLUMN_HINTS = {
 	"line_type": ["line type", "type", "row type"],
-	"item_no": ["item", "item no", "sr", "sr no", "s.no", "no", "sl", "code", "رقم"],
+	"item_no": ["item", "item no", "sr", "sr no", "s.no", "no", "sl", "code", "رقم", "رقم البند"],
 	"parent_item_no": ["parent item", "parent item no", "parent no", "main item"],
-	"description": ["description", "desc", "item description", "particulars", "الوصف", "البيان"],
+	"description": ["description", "desc", "item description", "particulars", "الوصف", "البيان", "وصف البند", "وصف"],
 	"description_en": ["description en", "english description", "description english"],
 	"unit": ["unit", "uom", "u.o.m", "الوحدة"],
 	"quantity": ["qty", "quantity", "الكمية"],
-	"unit_price": ["unit price", "rate", "price", "السعر"],
+	"unit_price": ["unit price", "rate", "price", "السعر", "القيمة للوحدة", "قيمة الوحدة", "سعر الوحدة"],
 	"specification": ["specification", "spec", "specs", "المواصفات"],
 	"source_page": ["source page", "page", "page no"],
 	"extraction_confidence": ["confidence", "extraction confidence"],
@@ -184,6 +184,60 @@ def _match_header(header_cell: str) -> str | None:
 		if any(value == h or h in value for h in hints):
 			return field
 	return None
+
+
+def _detect_header_row(rows, scan_limit: int = 15) -> tuple[int, dict]:
+	"""Locate the header row within the first `scan_limit` rows.
+
+	Spreadsheets often start with a merged title or blank rows, so the header
+	is not necessarily row 0. Returns (header_index, col_map) for the row that
+	maps the most distinct BOQ fields. Requires at least 2 mapped columns to
+	qualify as a header; otherwise returns (0, {}).
+	"""
+	best_idx, best_map = 0, {}
+	for idx in range(min(scan_limit, len(rows))):
+		col_map = {}
+		for cidx, cell in enumerate(rows[idx]):
+			field = _match_header(str(cell) if cell is not None else "")
+			if field and field not in col_map.values():
+				col_map[cidx] = field
+		if len(col_map) > len(best_map):
+			best_idx, best_map = idx, col_map
+	if len(best_map) < 2:
+		return 0, {}
+	return best_idx, best_map
+
+
+def excel_to_text_grid(file_url: str, max_rows: int = 500) -> str:
+	"""Serialize the first sheet of a workbook to a plain-text grid.
+
+	Each non-empty row becomes a line ``R<n>: c1 | c2 | c3 ...``. NO header
+	detection or column mapping is done here — the full grid is handed to the
+	LLM, which is far more robust across the many BOQ layouts we receive
+	(title rows, merged cells, bilingual headers, subtotals, shifted columns)
+	than rule-based column matching. Row indices are preserved so the model
+	can cite provenance.
+	"""
+	path = _resolve_file_path(file_url)
+	if not path or not os.path.exists(path):
+		return ""
+	try:
+		import openpyxl
+
+		wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+		ws = wb.active
+		lines = []
+		for idx, raw in enumerate(ws.iter_rows(values_only=True)):
+			if idx >= max_rows:
+				break
+			cells = ["" if c is None else str(c).strip() for c in raw]
+			if any(cells):
+				lines.append(f"R{idx}: " + " | ".join(cells))
+		wb.close()
+		return "\n".join(lines)
+	except Exception:
+		frappe.log_error(title="Tender Upload: excel_to_text_grid failed", message=frappe.get_traceback())
+		return ""
 
 
 def extract_rows_from_excel(file_url: str) -> list[dict]:
@@ -214,18 +268,14 @@ def extract_rows_from_excel(file_url: str) -> list[dict]:
 	if not rows:
 		return []
 
-	# Detect header row -> column index mapping.
-	header = rows[0]
-	col_map = {}
-	for idx, cell in enumerate(header):
-		field = _match_header(str(cell) if cell is not None else "")
-		if field and field not in col_map.values():
-			col_map[idx] = field
+	# Detect the header row (may be preceded by title/blank rows) and its
+	# column -> field mapping.
+	header_idx, col_map = _detect_header_row(rows)
 
 	extracted = []
 
 	if col_map:
-		for raw in rows[1:]:
+		for raw in rows[header_idx + 1:]:
 			row = {
 				"line_type": None, "item_no": None, "parent_item_no": None,
 				"description": None, "description_en": None, "unit": None,

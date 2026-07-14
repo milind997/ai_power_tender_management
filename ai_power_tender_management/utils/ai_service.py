@@ -252,4 +252,45 @@ def _extract_json(raw: str):
 	try:
 		return json.loads(text[start : end + 1])
 	except Exception:
-		return None
+		pass
+
+	# Last resort: the response was truncated mid-array (e.g. hit max_tokens).
+	# Salvage every complete top-level object so a long list isn't lost whole.
+	if text[start] == "[":
+		salvaged = _salvage_json_array(text[start:])
+		if salvaged:
+			return salvaged
+	return None
+
+
+def _salvage_json_array(text: str):
+	"""Recover complete `{...}` objects from a truncated JSON array string."""
+	objects = []
+	depth = 0
+	in_str = False
+	escape = False
+	obj_start = None
+	for i, ch in enumerate(text):
+		if in_str:
+			if escape:
+				escape = False
+			elif ch == "\\":
+				escape = True
+			elif ch == '"':
+				in_str = False
+			continue
+		if ch == '"':
+			in_str = True
+		elif ch == "{":
+			if depth == 0:
+				obj_start = i
+			depth += 1
+		elif ch == "}":
+			depth -= 1
+			if depth == 0 and obj_start is not None:
+				try:
+					objects.append(json.loads(text[obj_start : i + 1]))
+				except Exception:
+					pass
+				obj_start = None
+	return objects or None

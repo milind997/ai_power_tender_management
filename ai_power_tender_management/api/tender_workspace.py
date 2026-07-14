@@ -506,43 +506,24 @@ def extract_boq(tender_workspace_name):
 
 	rows = []
 	status = "Extracted"
+	ai_on = ai_service.is_enabled()
 
 	if file_format in ("xlsx", "xls", "csv"):
-		raw_rows = document_parser.extract_rows_from_excel(file_url)
-		for r in raw_rows:
-			if "raw" in r:
-				# Header detection failed for this row; keep what we can.
-				continue
-			qty = flt(r.get("quantity"))
-			price = flt(r.get("unit_price"))
-			line_type = str(r.get("line_type") or "Item")
-			if line_type not in ("Item", "Section Heading"):
-				line_type = "Item"
-			total = qty * price if line_type == "Item" else 0
-			rows.append({
-				"line_type": line_type,
-				"item_no": str(r.get("item_no") or ""),
-				"parent_item_no": str(r.get("parent_item_no") or ""),
-				"description": str(r.get("description") or ""),
-				"description_en": str(r.get("description_en") or ""),
-				"unit": str(r.get("unit") or ""),
-				"quantity": qty,
-				"unit_price": price,
-				"total": total,
-				"specification": str(r.get("specification") or ""),
-				"source_page": str(r.get("source_page") or ""),
-				"extraction_confidence": flt(r.get("extraction_confidence")),
-			})
+		# Format-agnostic path: hand the full sheet grid to the model. Fall back
+		# to the deterministic column parser only when AI is not configured.
+		if ai_on:
+			grid_text = document_parser.excel_to_text_grid(file_url)
+			rows, _confidence, _issues = _extract_boq_from_text(grid_text, source_label=boq_doc.file_name)
+		else:
+			rows = _rows_from_excel_deterministic(file_url)
 	elif file_format == "pdf":
 		boq_text = document_parser.extract_text_from_pdf(file_url)
 		text_readable = len(boq_text.strip()) > document_parser.READABLE_TEXT_THRESHOLD
 
-		if text_readable and ai_service.is_enabled():
-			# Digital PDF -> extract items from the text via the LLM.
-			ai_rows = _ai_boq_rows(boq_text)
-			if ai_rows:
-				rows = ai_rows
-		elif (not text_readable) and ai_service.is_enabled() and document_parser.ocr_available():
+		if text_readable and ai_on:
+			# Digital PDF -> two-pass extraction from the text.
+			rows, _confidence, _issues = _extract_boq_from_text(boq_text, source_label=boq_doc.file_name)
+		elif (not text_readable) and ai_on and document_parser.ocr_available():
 			# No text layer -> OCR→AI BOQ pipeline in the background (preferred).
 			if boq_doc.ai_status == "Processing":
 				return {
@@ -600,10 +581,35 @@ def extract_boq(tender_workspace_name):
 
 	# Excel gave nothing but AI is on with a digital-text PDF handled above; nothing more to try here.
 
-	# Nothing reliably extracted -> use placeholder sample rows so the flow works.
+	# Items-only: drop title/subtotal/VAT/total footer headings (keep headings
+	# that are referenced as a parent so links never orphan).
+	rows = _filter_boq_rows(rows)
+
+	# Nothing reliably extracted -> fail honestly. Never fabricate placeholder
+	# items or prices: an empty/ambiguous BOQ must not look like a real one.
 	if not rows:
-		status = "Extracted"
-		rows = _sample_boq_rows()
+		doc.set("boq_items", [])
+		boq_doc.ai_status = "Failed"
+		doc.save()
+		frappe.db.commit()
+		frappe.log_error(
+			title="Tender Extract BOQ: no items extracted",
+			message=(
+				f"Tender: {doc.name}\nFile: {boq_doc.file_name} ({file_url})\n"
+				f"Format: {file_format}\n"
+				"No BOQ line items could be extracted (unrecognised columns / empty "
+				"result). No placeholder rows were inserted."
+			),
+		)
+		return {
+			"status": "No Items Found",
+			"items_count": 0,
+			"message": _(
+				"No BOQ items could be extracted from this file. Please check that it "
+				"contains a recognisable Bill of Quantities table (item / description / "
+				"unit / quantity columns)."
+			),
+		}
 
 	# Replace existing BOQ items with the freshly extracted set.
 	doc.set("boq_items", [])
@@ -621,33 +627,6 @@ def extract_boq(tender_workspace_name):
 		"items_count": len(doc.boq_items),
 		"message": _("BOQ extracted successfully"),
 	}
-
-
-def _sample_boq_rows():
-	"""Placeholder BOQ rows used until real extraction is connected."""
-	samples = [
-		("1", "Water flow meter DN50", "Nos", 10, 1500),
-		("2", "Water flow meter DN80", "Nos", 6, 2200),
-		("3", "Installation & commissioning", "Lot", 1, 8000),
-	]
-	rows = []
-	for item_no, desc, unit, qty, price in samples:
-		rows.append({
-			"line_type": "Item",
-			"item_no": item_no,
-			"parent_item_no": "",
-			"description": desc,
-			"description_en": desc,
-			"unit": unit,
-			"quantity": qty,
-			"unit_price": price,
-			"total": qty * price,
-			"specification": PLACEHOLDER_TEXT,
-			"source_page": "",
-			"extraction_confidence": 0,
-			"notes": _("Sample row (Phase 1 placeholder)"),
-		})
-	return rows
 
 
 # ---------------------------------------------------------------------------
@@ -669,6 +648,27 @@ PROPOSAL_SECTIONS = [
 PROPOSAL_SECTION_ALIASES = {
 	"Primavera Timeline": "Primavera Style Timeline",
 }
+
+# Arabic display titles for the proposal sections. `section_type` stays English
+# (it is the canonical key used for ordering, aliases and guidance lookups); only
+# the shown `title` is Arabic so the proposal reads natively RTL.
+PROPOSAL_SECTION_TITLES_AR = {
+	"Scope Understanding": "فهم نطاق العمل",
+	"Methodology": "منهجية العمل",
+	"Implementation Plan": "خطة التنفيذ",
+	"Primavera Style Timeline": "الجدول الزمني (بريمافيرا)",
+	"Equipment List": "قائمة المعدات",
+	"Organization Chart": "الهيكل التنظيمي",
+	"QA/QC Plan": "خطة ضمان ومراقبة الجودة",
+	"HSE Plan": "خطة الصحة والسلامة والبيئة",
+	"Compliance Matrix": "مصفوفة الامتثال",
+	"Risk Summary": "ملخص المخاطر",
+}
+
+
+def _proposal_title(section):
+	"""Arabic display title for a proposal section (falls back to the key)."""
+	return PROPOSAL_SECTION_TITLES_AR.get(section, section)
 
 # Arabic placeholder content shown until the real AI generation is connected.
 PLACEHOLDER_PROPOSAL_CONTENT = "سيتم إنشاء محتوى هذا القسم بواسطة الذكاء الاصطناعي في المرحلة التالية."
@@ -732,7 +732,7 @@ def generate_proposal_sections(tender_workspace_name):
 		content = content or PLACEHOLDER_PROPOSAL_CONTENT
 		doc.append("proposal_sections", {
 			"section_type": section,
-			"title": section,
+			"title": _proposal_title(section),
 			"status": "Generated" if generated else "Not Generated",
 			"content": content,
 			"confirmed": 0,
@@ -789,7 +789,7 @@ def generate_proposal_section(tender_workspace_name: str, section_type: str):
 		target = doc.append("proposal_sections", {})
 
 	target.section_type = section
-	target.title = section
+	target.title = _proposal_title(section)
 	target.status = "Generated" if generated else "Not Generated"
 	target.content = content
 	target.confirmed = 0
@@ -1010,6 +1010,11 @@ def _build_financial_xlsx(doc):
 			total,
 			row.specification,
 		])
+		# Right-align + RTL reading order for the Arabic text columns
+		# (Description = D, Description EN = E, Specification = J).
+		rtl = Alignment(horizontal="right", readingOrder=2, vertical="top", wrap_text=True)
+		for col in (4, 5, 10):
+			ws.cell(row=ws.max_row, column=col).alignment = rtl
 
 	vat_rate = flt(doc.vat_rate if doc.vat_rate is not None else 15)
 	vat_amount = subtotal * vat_rate / 100
@@ -1104,52 +1109,204 @@ def _ai_summary_rows(doc, document_text):
 	return rows or None
 
 
+# BOQ extraction tuning.
+#   - Below this overall confidence (or on any deterministic price-provenance
+#     issue) a second "verifier" pass is run on the same model. Above it, the
+#     draft is trusted and the second call is skipped to conserve the API key.
+_BOQ_VERIFY_THRESHOLD = 75.0
+# Arabic-Indic digits -> ASCII, so numeric provenance checks work on Arabic docs.
+_ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+
+def _normalize_boq_row(item):
+	"""Coerce one raw LLM item dict into the canonical boq_items row shape."""
+	qty = flt(item.get("quantity"))
+	price = flt(item.get("unit_price"))
+	line_type = str(item.get("line_type") or "Item")
+	if line_type not in ("Item", "Section Heading"):
+		line_type = "Item"
+	total = qty * price if line_type == "Item" else 0
+	return {
+		"line_type": line_type,
+		"item_no": str(item.get("item_no") or ""),
+		"parent_item_no": str(item.get("parent_item_no") or ""),
+		"description": str(item.get("description") or ""),
+		"description_en": str(item.get("description_en") or ""),
+		"unit": str(item.get("unit") or ""),
+		"quantity": qty,
+		"unit_price": price,
+		"total": total,
+		"specification": str(item.get("specification") or ""),
+		"source_page": str(item.get("source_page") or ""),
+		"extraction_confidence": flt(item.get("extraction_confidence")),
+	}
+
+
+def _number_in_text(value, normalized_src):
+	"""True if a numeric value plausibly appears in the (normalized) source text."""
+	v = flt(value)
+	if not v:
+		return True
+	forms = {("%g" % v), ("%.2f" % v)}
+	if v == int(v):
+		forms.add(str(int(v)))
+	# Compare with separators stripped so "1,500.00" matches "1500".
+	return any(f and f.replace(".", "") in normalized_src for f in forms)
+
+
+def _apply_price_provenance(rows, source_text):
+	"""Deterministic guard (no API): drop any unit_price not found in the source.
+
+	This is the cheap safety net that kills fabricated prices even if the model
+	invents them — an unpriced BOQ must never come back with prices.
+	"""
+	normalized_src = (source_text or "").translate(_ARABIC_DIGITS).replace(",", "").replace(" ", "").replace(".", "")
+	issues = []
+	for r in rows:
+		price = flt(r.get("unit_price"))
+		if price and not _number_in_text(price, normalized_src):
+			issues.append(
+				f"Removed price {price} for '{(r.get('description') or '')[:30]}' — not present in source"
+			)
+			r["unit_price"] = 0
+			r["total"] = 0
+	return issues
+
+
 def _ai_boq_rows(boq_text):
-	"""Ask the LLM to extract BOQ line items from raw text."""
+	"""Pass 1 (Extractor): ask the LLM to extract BOQ line items from raw text."""
 	text = (boq_text or "").strip()
 	if len(text) < 50:
 		return None
 
 	system = "You extract Bill of Quantities line items. Respond ONLY with valid JSON."
 	prompt = (
-		"Extract the BOQ line items from the text below as a JSON array. Each "
-		"element: {\"line_type\": \"Item\" or \"Section Heading\", "
-		"\"item_no\": str, \"parent_item_no\": str, \"description\": str, "
-		"\"description_en\": English translation if useful, \"unit\": str, "
-		"\"quantity\": number, \"unit_price\": number, \"specification\": str, "
-		"\"source_page\": str, \"extraction_confidence\": 0-100}. For headings "
-		"or subtotal/VAT lines, set line_type to \"Section Heading\" and quantity/unit_price to 0.\n\n"
-		f"BOQ TEXT:\n{text[:_MAX_DOC_CHARS]}"
+		"Extract the BOQ line items from the SOURCE below as a JSON array. Keep the "
+		"output compact — one element per line item, no extra prose. Each element: "
+		"{\"line_type\": \"Item\" or \"Section Heading\", \"item_no\": str, "
+		"\"parent_item_no\": str, \"description\": str (keep the ORIGINAL language, "
+		"do NOT translate), \"unit\": str, \"quantity\": number, \"unit_price\": number, "
+		"\"source_page\": str, \"extraction_confidence\": 0-100}. "
+		"The source may contain title rows, merged cells, shifted columns and "
+		"bilingual headers — infer the table structure yourself; do not assume a "
+		"fixed layout. CRITICAL: never invent prices or quantities. If a unit price "
+		"is blank/absent in the source, set unit_price to 0 (many BOQs are unpriced). "
+		"For headings or subtotal/VAT lines set line_type to \"Section Heading\" and "
+		"quantity/unit_price to 0.\n\n"
+		f"SOURCE:\n{text[:_MAX_DOC_CHARS]}"
 	)
-	data = ai_service.complete_json(prompt, system=system)
+	data = ai_service.complete_json(prompt, system=system, max_tokens=8000)
 	if not isinstance(data, list):
 		return None
 
-	rows = []
-	for item in data:
-		if not isinstance(item, dict) or not item.get("description"):
-			continue
-		qty = flt(item.get("quantity"))
-		price = flt(item.get("unit_price"))
-		line_type = str(item.get("line_type") or "Item")
-		if line_type not in ("Item", "Section Heading"):
-			line_type = "Item"
-		total = qty * price if line_type == "Item" else 0
-		rows.append({
-			"line_type": line_type,
-			"item_no": str(item.get("item_no") or ""),
-			"parent_item_no": str(item.get("parent_item_no") or ""),
-			"description": str(item.get("description") or ""),
-			"description_en": str(item.get("description_en") or ""),
-			"unit": str(item.get("unit") or ""),
-			"quantity": qty,
-			"unit_price": price,
-			"total": total,
-			"specification": str(item.get("specification") or ""),
-			"source_page": str(item.get("source_page") or ""),
-			"extraction_confidence": flt(item.get("extraction_confidence")),
-		})
+	rows = [_normalize_boq_row(item) for item in data if isinstance(item, dict) and item.get("description")]
 	return rows or None
+
+
+def _ai_boq_verify(source_text, draft_rows):
+	"""Pass 2 (Verifier): audit the draft against the source on the same model.
+
+	Runs only when Pass 1 is low-confidence or the provenance guard flagged
+	something. Returns {"rows", "confidence", "issues"} or None on failure.
+	"""
+	text = (source_text or "").strip()
+	if not text or not draft_rows:
+		return None
+
+	system = "You audit an extracted Bill of Quantities against its source. Respond ONLY with valid JSON."
+	prompt = (
+		"You are given the SOURCE text of a BOQ and a DRAFT extraction of its line "
+		"items. Audit the draft against the source and return corrected data as a "
+		"JSON object: {\"rows\": [ ...same element schema as the draft... ], "
+		"\"confidence\": 0-100, \"issues\": [str]}. Rules: (1) Remove draft rows that "
+		"do not exist in the source. (2) Add line items that are in the source but "
+		"missing from the draft. (3) NEVER invent prices or quantities — if a unit "
+		"price is not explicitly in the source, set unit_price to 0. (4) Keep "
+		"descriptions in their original language. Set confidence to how well the "
+		"corrected rows match the source.\n\n"
+		f"SOURCE:\n{text[:_MAX_DOC_CHARS]}\n\n"
+		f"DRAFT:\n{frappe.as_json(draft_rows)[:_MAX_DOC_CHARS]}"
+	)
+	data = ai_service.complete_json(prompt, system=system, max_tokens=8000)
+	if not isinstance(data, dict) or not isinstance(data.get("rows"), list):
+		return None
+
+	rows = [_normalize_boq_row(item) for item in data["rows"] if isinstance(item, dict) and item.get("description")]
+	return {"rows": rows, "confidence": flt(data.get("confidence")), "issues": data.get("issues") or []}
+
+
+def _extract_boq_from_text(source_text, source_label="", allow_verify=True):
+	"""Format-agnostic BOQ extraction orchestrator (single model, up to 2 passes).
+
+	Pass 1 extracts, a free deterministic guard strips fabricated prices, and a
+	conditional Pass 2 verifies only when confidence is low or a price was
+	flagged. Returns (rows, confidence, issues).
+	"""
+	text = (source_text or "").strip()
+	if len(text) < 30:
+		return [], 0.0, ["Source text too short to extract."]
+
+	rows = _ai_boq_rows(text) or []
+	if not rows:
+		return [], 0.0, ["Extractor returned no rows."]
+
+	issues = _apply_price_provenance(rows, text)
+
+	confs = [flt(r.get("extraction_confidence")) for r in rows if flt(r.get("extraction_confidence"))]
+	confidence = (sum(confs) / len(confs)) if confs else 60.0
+	if issues:
+		confidence = min(confidence, 55.0)
+
+	# Pass 2 only when it can actually help (low confidence or a flagged price).
+	if allow_verify and (confidence < _BOQ_VERIFY_THRESHOLD or issues):
+		verified = _ai_boq_verify(text, rows)
+		if verified and verified.get("rows"):
+			rows = verified["rows"]
+			issues += _apply_price_provenance(rows, text)  # re-guard corrected rows
+			if verified.get("confidence"):
+				confidence = flt(verified["confidence"])
+			if verified.get("issues"):
+				issues += [str(i) for i in verified["issues"]]
+
+	return rows, confidence, issues
+
+
+def _filter_boq_rows(rows):
+	"""Reduce to real line items for an items-only BOQ.
+
+	Keeps every ``Item`` row plus any ``Section Heading`` that is referenced as
+	a parent by some item (so ``parent_item_no`` links never orphan). Drops the
+	standalone headings — document title, subtotal/VAT/total footer rows — that
+	nothing references and that the app recomputes on its own.
+	"""
+	referenced_parents = {
+		(r.get("parent_item_no") or "").strip()
+		for r in rows
+		if (r.get("parent_item_no") or "").strip()
+	}
+	kept = []
+	for r in rows:
+		if (r.get("line_type") or "Item") != "Section Heading":
+			kept.append(r)
+			continue
+		item_no = (r.get("item_no") or "").strip()
+		if item_no and item_no in referenced_parents:
+			kept.append(r)
+	return kept
+
+
+def _rows_from_excel_deterministic(file_url):
+	"""Free, no-AI spreadsheet parse (used only when AI is not configured).
+
+	Best-effort column mapping via document_parser; rows whose columns could
+	not be detected are skipped rather than fabricated.
+	"""
+	rows = []
+	for r in document_parser.extract_rows_from_excel(file_url):
+		if "raw" in r:
+			continue
+		rows.append(_normalize_boq_row(r))
+	return rows
 
 
 def _proposal_generation_context(doc):
@@ -1280,30 +1437,7 @@ def _ai_boq_rows_pdf(file_url):
 	if not isinstance(data, list):
 		return None
 
-	rows = []
-	for item in data:
-		if not isinstance(item, dict) or not item.get("description"):
-			continue
-		qty = flt(item.get("quantity"))
-		price = flt(item.get("unit_price"))
-		line_type = str(item.get("line_type") or "Item")
-		if line_type not in ("Item", "Section Heading"):
-			line_type = "Item"
-		total = qty * price if line_type == "Item" else 0
-		rows.append({
-			"line_type": line_type,
-			"item_no": str(item.get("item_no") or ""),
-			"parent_item_no": str(item.get("parent_item_no") or ""),
-			"description": str(item.get("description") or ""),
-			"description_en": str(item.get("description_en") or ""),
-			"unit": str(item.get("unit") or ""),
-			"quantity": qty,
-			"unit_price": price,
-			"total": total,
-			"specification": str(item.get("specification") or ""),
-			"source_page": str(item.get("source_page") or ""),
-			"extraction_confidence": flt(item.get("extraction_confidence")),
-		})
+	rows = [_normalize_boq_row(item) for item in data if isinstance(item, dict) and item.get("description")]
 	return rows or None
 
 
@@ -1513,7 +1647,8 @@ def _ocr_boq_pipeline(tender_workspace_name):
 		boq_text = "\n\n".join(boq_pages) if boq_pages else "\n\n".join(t for _, t in pages)
 
 		_publish(doc.name, _("Extracting BOQ items…"), 60)
-		rows = _ai_boq_rows(boq_text[: _CHUNK_CHARS * 2]) or []
+		rows, _confidence, _issues = _extract_boq_from_text(boq_text[: _CHUNK_CHARS * 2])
+		rows = _filter_boq_rows(rows)
 
 		if not rows:
 			frappe.db.set_value("Tender Document Item", boq_name, {

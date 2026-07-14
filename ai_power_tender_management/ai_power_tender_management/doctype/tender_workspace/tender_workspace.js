@@ -1,8 +1,32 @@
 // Copyright (c) 2026, milind and contributors
 // For license information, please see license.txt
 
+// Arabic (and other RTL) text in the BOQ / AI-summary grids must auto-align:
+// `unicode-bidi: plaintext` picks direction from each cell's first strong
+// character, so Arabic reads right-to-left while Latin text and numbers stay
+// left-to-right — fixing mixed strings like "63 واقل". Injected once per session.
+function inject_tender_rtl_styles() {
+	if (document.getElementById("tender-rtl-style")) return;
+	const fields = ["description", "description_en", "specification"];
+	const summary_fields = ["extracted_text"];
+	const sel = (grid, fname) =>
+		`.frappe-control[data-fieldname="${grid}"] [data-fieldname="${fname}"],` +
+		`.frappe-control[data-fieldname="${grid}"] [data-fieldname="${fname}"] input,` +
+		`.frappe-control[data-fieldname="${grid}"] [data-fieldname="${fname}"] textarea`;
+	const selectors = [
+		...fields.map((f) => sel("boq_items", f)),
+		...summary_fields.map((f) => sel("ai_summary", f)),
+	].join(",");
+	const style = document.createElement("style");
+	style.id = "tender-rtl-style";
+	style.textContent = `${selectors} { unicode-bidi: plaintext !important; text-align: start !important; }`;
+	document.head.appendChild(style);
+}
+
 frappe.ui.form.on("Tender Workspace", {
 	refresh(frm) {
+		inject_tender_rtl_styles();
+
 		// A compact at-a-glance summary works even for a brand-new record.
 		render_tender_dashboard(frm);
 		highlight_summary_rows(frm);
@@ -193,6 +217,14 @@ function render_tender_dashboard(frm) {
 			<span style="font-size:18px;font-weight:700;color:${color};">${value}</span>
 		</div>`;
 
+	const ai_notice = `
+		<div style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 12px;border-radius:8px;
+			background:var(--yellow-50, #fffbeb);border:1px solid var(--yellow-200, #fde68a);
+			font-size:12px;color:var(--yellow-800, #92400e);">
+			<span>⚠️</span>
+			<span>${__("AI-generated content (extraction, BOQ, summaries) can contain mistakes — please review before you proceed.")}</span>
+		</div>`;
+
 	const html = `
 		<div style="display:flex;flex-wrap:wrap;gap:10px;padding:4px 0;">
 			${pill(__("Dangerous Clauses"), danger, danger ? "var(--red-500, #e53e3e)" : "var(--text-color)")}
@@ -201,7 +233,8 @@ function render_tender_dashboard(frm) {
 			${pill(__("Priced"), `${priced}/${priceable.length}`, all_priced ? "var(--green-600, #2f855a)" : (priceable.length ? "var(--orange-500, #dd6b20)" : "var(--text-color)"))}
 			${pill(__("Proposal Sections"), proposals, "var(--text-color)")}
 			${pill(__("Confirmed"), `${confirmed}/${rows.length}`, confirmed === rows.length && rows.length ? "var(--green-600, #2f855a)" : "var(--text-color)")}
-		</div>`;
+		</div>
+		${ai_notice}`;
 
 	frm.dashboard.set_headline(html);
 }
