@@ -140,18 +140,6 @@ frappe.ui.form.on("Tender Workspace", {
 			);
 		});
 
-		// --- Export actions ---
-		frm.add_custom_button(
-			__("Export Technical Proposal"),
-			() => run("export_technical_proposal", __("Preparing technical proposal…")),
-			__("Export")
-		);
-		frm.add_custom_button(
-			__("Export Financial Proposal"),
-			() => run("export_financial_proposal", __("Preparing financial proposal…")),
-			__("Export")
-		);
-
 		// --- Manual status transitions (Status field is read-only) ---
 		const set_status = (status) => {
 			frm.set_value("status", status);
