@@ -73,11 +73,22 @@ app_license = "mit"
 # Jinja
 # ----------
 
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "ai_power_tender_management.utils.jinja_methods",
-# 	"filters": "ai_power_tender_management.utils.jinja_filters"
-# }
+# Exposed to the Tender Technical Proposal print format, which renders the
+# baseline schedule. Registered by function name: build_schedule_html(doc) and
+# schedule_css(). The Jinja sandbox only allows whitelisted calls otherwise.
+jinja = {
+	"methods": [
+		"ai_power_tender_management.utils.schedule.build_schedule_html",
+		"ai_power_tender_management.utils.schedule.build_schedule_brief_html",
+		"ai_power_tender_management.utils.schedule.schedule_css",
+		"ai_power_tender_management.utils.orgchart.build_org_chart_html",
+		"ai_power_tender_management.utils.orgchart.build_staffing_table_html",
+		"ai_power_tender_management.utils.orgchart.build_phase_allocation_html",
+		"ai_power_tender_management.utils.orgchart.build_escalation_html",
+		"ai_power_tender_management.utils.orgchart.build_bullets_html",
+		"ai_power_tender_management.utils.orgchart.org_css",
+	],
+}
 
 # Installation
 # ------------

@@ -18,6 +18,7 @@ return None so callers can fall back to placeholder behaviour.
 """
 
 import json
+import re
 import time
 
 import frappe
@@ -27,6 +28,21 @@ SETTINGS_DOCTYPE = "AI Settings"
 # Conservative input-token budget per minute (org limit is ~10k). Used to pace
 # chunked requests so a large document does not trip the rate limit.
 RATE_LIMIT_TPM = 8000
+_LOG_PAYLOAD_CHARS = 4000
+
+
+def _sanitize_log_text(value, max_chars=_LOG_PAYLOAD_CHARS):
+	text = "" if value is None else str(value)
+	for pattern in (
+		r"sk-[A-Za-z0-9_\-]{10,}",
+		r"(?i)(api[_-]?key\s*[:=]\s*)[^\s,\n]+",
+		r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,\n]+",
+		r"(?i)(password\s*[:=]\s*)[^\s,\n]+",
+	):
+		text = re.sub(pattern, lambda m: (m.group(1) if m.groups() else "") + "[redacted]", text)
+	if max_chars and len(text) > max_chars:
+		return text[:max_chars] + "\n...[truncated]"
+	return text
 
 
 def estimate_tokens(text: str) -> int:
@@ -63,17 +79,60 @@ def is_enabled() -> bool:
 	return bool(_api_key(settings))
 
 
-def get_llm_config() -> dict:
+TASK_MODEL_FIELDS = {
+	"extraction": (
+		"tender_extraction_model",
+		"extraction_model",
+		"small_model",
+		"validation_model",
+	),
+	"validation": (
+		"tender_validation_model",
+		"validation_model",
+		"small_model",
+		"extraction_model",
+	),
+	"arabic_proposal": (
+		"tender_arabic_proposal_model",
+		"arabic_proposal_model",
+		"proposal_model",
+		"high_quality_model",
+	),
+}
+
+
+def _default_model(settings):
+	return settings.get_default_model() if hasattr(settings, "get_default_model") else settings.model
+
+
+def get_task_model(settings, task: str | None = None) -> str | None:
+	"""Resolve a task-specific model, falling back to the default AI Settings model."""
+	default = _default_model(settings)
+	if not task:
+		return default
+
+	task = task.strip().lower()
+	for field in TASK_MODEL_FIELDS.get(task, ()):
+		value = (getattr(settings, field, None) or "").strip()
+		if value:
+			return value
+
+	conf_key = f"tender_ai_{task}_model"
+	return (frappe.conf.get(conf_key) or default or "").strip() or None
+
+
+def get_llm_config(task: str | None = None) -> dict:
 	"""Read the current LLM configuration from AI Settings (key redacted)."""
 	settings = get_settings()
 	if not settings:
 		return {"enabled": False, "configured": False}
 
-	model = settings.get_default_model() if hasattr(settings, "get_default_model") else settings.model
+	model = get_task_model(settings, task)
 	return {
 		"enabled": bool(getattr(settings, "enabled", 0)),
 		"provider": (settings.provider or "").strip(),
 		"model": model,
+		"task": task or "default",
 		"base_url": settings.base_url or None,
 		"max_tokens": int(settings.max_tokens or 2000),
 		"timeout": int(settings.timeout or 120),
@@ -81,7 +140,12 @@ def get_llm_config() -> dict:
 	}
 
 
-def complete(prompt: str, system: str | None = None, max_tokens: int | None = None) -> str | None:
+def complete(
+	prompt: str,
+	system: str | None = None,
+	max_tokens: int | None = None,
+	task: str | None = None,
+) -> str | None:
 	"""
 	Send a single prompt to the configured LLM and return the text response.
 
@@ -93,7 +157,7 @@ def complete(prompt: str, system: str | None = None, max_tokens: int | None = No
 	settings = get_settings()
 	provider = (settings.provider or "").strip().lower()
 	api_key = _api_key(settings)
-	model = settings.get_default_model() if hasattr(settings, "get_default_model") else settings.model
+	model = get_task_model(settings, task)
 	max_tokens = int(max_tokens or settings.max_tokens or 2000)
 	timeout = int(settings.timeout or 120)
 	base_url = settings.base_url or None
@@ -131,13 +195,21 @@ def complete(prompt: str, system: str | None = None, max_tokens: int | None = No
 		return (resp.choices[0].message.content or "").strip()
 
 	except Exception:
-		frappe.log_error(title="Tender AI: LLM completion failed", message=frappe.get_traceback())
+		frappe.log_error(
+			title="Tender AI: LLM completion failed",
+			message=_sanitize_log_text(f"Task: {task or 'default'}\nModel: {model}\n\n{frappe.get_traceback()}"),
+		)
 		return None
 
 
-def complete_json(prompt: str, system: str | None = None, max_tokens: int | None = None):
+def complete_json(
+	prompt: str,
+	system: str | None = None,
+	max_tokens: int | None = None,
+	task: str | None = None,
+):
 	"""Call the LLM and parse a JSON object/array from the response."""
-	raw = complete(prompt, system=system, max_tokens=max_tokens)
+	raw = complete(prompt, system=system, max_tokens=max_tokens, task=task)
 	if not raw:
 		return None
 	return _extract_json(raw)
@@ -151,7 +223,13 @@ def supports_pdf_vision() -> bool:
 	return (settings.provider or "").strip().lower() == "anthropic"
 
 
-def complete_pdf(file_url: str, prompt: str, system: str | None = None, max_tokens: int | None = None) -> str | None:
+def complete_pdf(
+	file_url: str,
+	prompt: str,
+	system: str | None = None,
+	max_tokens: int | None = None,
+	task: str | None = None,
+) -> str | None:
 	"""
 	Send a PDF file *natively* to the model (vision) together with a prompt.
 
@@ -167,12 +245,12 @@ def complete_pdf(file_url: str, prompt: str, system: str | None = None, max_toke
 
 	path = document_parser._resolve_file_path(file_url)
 	if not path:
-		frappe.log_error(title="Tender AI: PDF not found for vision", message=file_url)
+		frappe.log_error(title="Tender AI: PDF not found for vision", message=_sanitize_log_text(file_url, 500))
 		return None
 
 	settings = get_settings()
 	api_key = _api_key(settings)
-	model = settings.get_default_model() if hasattr(settings, "get_default_model") else settings.model
+	model = get_task_model(settings, task)
 	max_tokens = int(max_tokens or settings.max_tokens or 2000)
 	timeout = int(settings.timeout or 120)
 	base_url = settings.base_url or None
@@ -215,13 +293,19 @@ def complete_pdf(file_url: str, prompt: str, system: str | None = None, max_toke
 			if is_rate_limit
 			else "Tender AI: PDF vision completion failed"
 		)
-		frappe.log_error(title=title, message=frappe.get_traceback())
+		frappe.log_error(title=title, message=_sanitize_log_text(f"File: {file_url}\n\n{frappe.get_traceback()}"))
 		return None
 
 
-def complete_pdf_json(file_url: str, prompt: str, system: str | None = None, max_tokens: int | None = None):
+def complete_pdf_json(
+	file_url: str,
+	prompt: str,
+	system: str | None = None,
+	max_tokens: int | None = None,
+	task: str | None = "extraction",
+):
 	"""Send a PDF to the model and parse a JSON object/array from the response."""
-	raw = complete_pdf(file_url, prompt, system=system, max_tokens=max_tokens)
+	raw = complete_pdf(file_url, prompt, system=system, max_tokens=max_tokens, task=task)
 	if not raw:
 		return None
 	return _extract_json(raw)

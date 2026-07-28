@@ -2,13 +2,14 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "TND-.#####",
- "creation": "2026-07-07 00:00:00.000000",
+ "creation": "2026-07-07 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "details_tab",
   "basic_section",
   "tender_name",
+  "tender_name_ar",
   "tender_number",
   "client_name",
   "column_break_basic",
@@ -28,6 +29,13 @@
   "notes",
   "documents_section",
   "uploaded_documents",
+  "knowledge_cache_section",
+  "knowledge_version",
+  "knowledge_fingerprint",
+  "knowledge_updated_on",
+  "knowledge_chunks_json",
+  "structured_analysis_json",
+  "boq_cache_json",
   "ai_tab",
   "ai_section",
   "ai_summary",
@@ -43,7 +51,15 @@
   "boq_grand_total",
   "proposal_tab",
   "proposal_section",
-  "proposal_sections"
+  "proposal_sections",
+  "schedule_tab",
+  "schedule_section",
+  "schedule_activities",
+  "org_tab",
+  "org_purpose",
+  "org_basis",
+  "org_notes",
+  "organization_roles"
  ],
  "fields": [
   {
@@ -62,6 +78,12 @@
    "in_list_view": 1,
    "label": "Tender Name",
    "reqd": 1
+  },
+  {
+   "description": "Tender name as printed in the Arabic source document. Used for Arabic output; falls back to Tender Name when empty.",
+   "fieldname": "tender_name_ar",
+   "fieldtype": "Data",
+   "label": "Tender Name (Arabic)"
   },
   {
    "fieldname": "tender_number",
@@ -102,10 +124,10 @@
    "options": "User"
   },
   {
+   "description": "Auto-filled from the tender document via the \"Extract Tender Info\" action.",
    "fieldname": "key_details_section",
    "fieldtype": "Section Break",
-   "label": "Key Details",
-   "description": "Auto-filled from the tender document via the \"Extract Tender Info\" action."
+   "label": "Key Details"
   },
   {
    "fieldname": "tender_type",
@@ -169,6 +191,58 @@
    "fieldtype": "Table",
    "label": "Uploaded Documents",
    "options": "Tender Document Item"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "knowledge_cache_section",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Tender Knowledge Cache"
+  },
+  {
+   "fieldname": "knowledge_version",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Knowledge Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "knowledge_fingerprint",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Knowledge Fingerprint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "knowledge_updated_on",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Knowledge Updated On",
+   "read_only": 1
+  },
+  {
+   "description": "JSON retrieval records built from extracted/OCR text. Hidden cache used by downstream AI steps.",
+   "fieldname": "knowledge_chunks_json",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Knowledge Chunks JSON",
+   "read_only": 1
+  },
+  {
+   "description": "Versioned structured tender facts, evidence references, and analysis rows reused across AI steps.",
+   "fieldname": "structured_analysis_json",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Structured Analysis JSON",
+   "read_only": 1
+  },
+  {
+   "description": "Versioned BOQ extraction result reused when source files have not changed.",
+   "fieldname": "boq_cache_json",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "BOQ Cache JSON",
+   "read_only": 1
   },
   {
    "fieldname": "ai_tab",
@@ -256,15 +330,62 @@
    "fieldtype": "Table",
    "label": "Proposal Sections",
    "options": "Tender Proposal Section"
+  },
+  {
+   "fieldname": "schedule_tab",
+   "fieldtype": "Tab Break",
+   "label": "Schedule"
+  },
+  {
+   "fieldname": "schedule_section",
+   "fieldtype": "Section Break",
+   "label": "Project Schedule"
+  },
+  {
+   "description": "Baseline schedule rendered as the activity table and Gantt chart in the technical proposal.",
+   "fieldname": "schedule_activities",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Schedule Activities",
+   "options": "Tender Schedule Activity"
+  },
+  {
+   "fieldname": "org_tab",
+   "fieldtype": "Tab Break",
+   "label": "Organization"
+  },
+  {
+   "description": "Section 1 of the organization document.",
+   "fieldname": "org_purpose",
+   "fieldtype": "Small Text",
+   "label": "Purpose of the Structure"
+  },
+  {
+   "description": "Section 2. One bullet per line; tender-mandated minimums belong here.",
+   "fieldname": "org_basis",
+   "fieldtype": "Small Text",
+   "label": "Basis of the Structure"
+  },
+  {
+   "description": "Closing section. One bullet per line.",
+   "fieldname": "org_notes",
+   "fieldtype": "Small Text",
+   "label": "Executive Notes"
+  },
+  {
+   "fieldname": "organization_roles",
+   "fieldtype": "Table",
+   "label": "Organization Roles",
+   "options": "Tender Organization Role"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-08 00:00:00.000000",
+ "modified": "2026-07-27 17:30:04.634627",
  "modified_by": "Administrator",
  "module": "ai_power_tender_management",
  "name": "Tender Workspace",
- "naming_rule": "Expression (old style)",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {
@@ -280,6 +401,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

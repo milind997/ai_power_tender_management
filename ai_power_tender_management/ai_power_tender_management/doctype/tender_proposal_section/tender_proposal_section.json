@@ -19,7 +19,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Section Type",
-   "options": "Scope Understanding\nMethodology\nImplementation Plan\nPrimavera Style Timeline\nEquipment List\nOrganization Chart\nQA/QC Plan\nHSE Plan\nCompliance Matrix\nRisk Summary",
+   "options": "Scope Understanding\nMethodology\nImplementation Plan\nProject Timeline\nEquipment List\nOrganization Chart\nQA/QC Plan\nHSE Plan\nCompliance Matrix\nRisk Summary",
    "columns": 2,
    "reqd": 1
   },

@@ -45,10 +45,13 @@ frappe.TenderUpload.BADGE = {
 	"Not Uploaded": "gray",
 	Uploaded: "blue",
 	Processing: "orange",
-	Processed: "green",
-	Extracted: "green",
-	"OCR Required": "yellow",
-	Failed: "red",
+		Processed: "green",
+		Extracted: "green",
+		"OCR Required": "yellow",
+		"AI Not Configured": "yellow",
+		"AI Failed": "red",
+		"No Items Found": "red",
+		Failed: "red",
 	Unknown: "gray",
 	Yes: "green",
 };
@@ -509,8 +512,8 @@ frappe.TenderUpload.View = class TenderUploadView {
 		this.slots.tender.readable_status = res.status === "OCR Required" ? "OCR Required" : "Yes";
 		this.render_file("tender");
 
-		const indicator = res.status === "OCR Required" ? "orange" : "green";
-		frappe.show_alert({ message: res.message, indicator });
+			const indicator = ["OCR Required", "AI Not Configured", "AI Failed"].includes(res.status) ? "orange" : "green";
+			this.show_result_message(res, res.message, indicator);
 		this.refresh_header();
 		this.update_steps();
 		this.refresh_summary();
@@ -541,8 +544,8 @@ frappe.TenderUpload.View = class TenderUploadView {
 		this.slots.boq.readable_status = res.status === "OCR Required" ? "OCR Required" : "Yes";
 		this.render_file("boq");
 
-		const indicator = res.status === "OCR Required" ? "orange" : "green";
-		frappe.show_alert({ message: `${res.message} (${res.items_count} ${__("items")})`, indicator });
+			const indicator = ["OCR Required", "No Items Found", "AI Failed"].includes(res.status) ? "orange" : "green";
+			this.show_result_message(res, `${res.message} (${res.items_count} ${__("items")})`, indicator);
 		this.refresh_header();
 		this.update_steps();
 		this.refresh_summary();
@@ -567,7 +570,9 @@ frappe.TenderUpload.View = class TenderUploadView {
 					}
 				}
 				this.render_result(s);
-				const busy = s.tender_document_status === "Processing" || s.boq_status === "Processing";
+				// Every AI step is a background job now, so ask the job list —
+				// the per-document ai_status flags only cover the OCR pipelines.
+				const busy = (s.jobs || []).some((j) => ["queued", "running"].includes(j.state));
 				if (!busy || tries > 45) {
 					clearInterval(this._poll);
 					this._poll = null;
@@ -585,7 +590,13 @@ frappe.TenderUpload.View = class TenderUploadView {
 		const res = await this.call("generate_proposal_sections", { tender_workspace_name: this.tender_name });
 		this.set_loading(".tu-generate", false, __("Generate Proposal Sections"));
 		if (!res) return;
-		frappe.show_alert({ message: `${res.message} (${res.sections_count})`, indicator: "green" });
+		// Queued as a background job — poll instead of reporting a final count.
+		if (res.background) {
+			frappe.show_alert({ message: res.message, indicator: "blue" });
+			this.start_poll();
+			return;
+		}
+			this.show_result_message(res, `${res.message} (${res.sections_count})`, res.error_log ? "orange" : "green");
 		this.update_steps();
 		this.refresh_summary();
 	}
@@ -603,7 +614,8 @@ frappe.TenderUpload.View = class TenderUploadView {
 		if (kind === "financial" && res.grand_total != null) {
 			msg += ` — ${__("Total")}: ${format_currency(res.grand_total)}`;
 		}
-		frappe.show_alert({ message: msg, indicator: "green" });
+			this.show_result_message(res, msg, res.status === "Failed" ? "red" : "green");
+			if (res.status === "Failed") return;
 		// Download the generated file.
 		if (res.file_url) {
 			window.open(res.file_url, "_blank");
@@ -691,13 +703,30 @@ frappe.TenderUpload.View = class TenderUploadView {
 	// -----------------------------------------------------------------------
 	// Helpers
 	// -----------------------------------------------------------------------
-	ensure_saved() {
+		ensure_saved() {
 		if (!this.tender_name) {
 			frappe.msgprint({ message: __("Please Save the Tender first."), indicator: "red", title: __("Not saved") });
 			return false;
 		}
-		return true;
-	}
+			return true;
+		}
+
+		show_result_message(res, message, indicator) {
+			if (res && res.error_log) {
+				frappe.msgprint({
+					title: __("Tender Process Issue"),
+					indicator: indicator || "orange",
+					message: `
+						<div>${frappe.utils.escape_html(message || res.message || "")}</div>
+						<div style="margin-top:8px;">
+							<a href="/app/error-log/${encodeURIComponent(res.error_log)}"
+								target="_blank" rel="noopener">${__("View Error Log")}</a>
+						</div>`,
+				});
+				return;
+			}
+			frappe.show_alert({ message, indicator: indicator || "green" });
+		}
 
 	set_badge($el, value, label) {
 		const colour = frappe.TenderUpload.BADGE[value] || "gray";

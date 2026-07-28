@@ -12,6 +12,7 @@
   "file_format",
   "ai_status",
   "readable_status",
+  "file_fingerprint",
   "ai_summary"
  ],
  "fields": [
@@ -57,6 +58,14 @@
    "label": "Readable Status",
    "options": "Unknown\nYes\nOCR Required",
    "default": "Unknown"
+  },
+  {
+   "fieldname": "file_fingerprint",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "File Fingerprint",
+   "length": 128,
+   "read_only": 1
   },
   {
    "fieldname": "ai_summary",

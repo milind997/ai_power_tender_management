@@ -23,8 +23,8 @@ backend ships clean placeholders/stubs marked with `TODO(AI)`.
   - `Tender AI Summary` (child) — extracted clauses/requirements
   - `Tender BOQ Item` (child) — BOQ line items
   - `Tender Proposal Section` (child) — generated Arabic proposal sections
-    (Scope Understanding, Methodology, Implementation Plan, Primavera Style
-    Timeline, Equipment List, Organization Chart, QA/QC Plan, HSE Plan,
+    (Scope Understanding, Methodology, Implementation Plan, Project Timeline,
+    Equipment List, Organization Chart, QA/QC Plan, HSE Plan,
     Compliance Matrix)
 - **DocType form buttons** — `doctype/tender_workspace/tender_workspace.js` adds
   a toolbar with: Analyze Tender Document · Extract BOQ · Generate Proposal

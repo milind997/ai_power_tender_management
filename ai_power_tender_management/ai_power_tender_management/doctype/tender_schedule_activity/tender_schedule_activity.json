@@ -1,0 +1,137 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "wbs",
+  "activity_id",
+  "activity_name",
+  "activity_type",
+  "calendar",
+  "original_duration",
+  "planned_start",
+  "planned_finish",
+  "predecessors",
+  "total_float",
+  "is_critical",
+  "weight_pct",
+  "primary_resource",
+  "status"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "description": "Work Breakdown Structure code, e.g. 2.4",
+   "fieldname": "wbs",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "WBS"
+  },
+  {
+   "columns": 2,
+   "description": "Unique activity code referenced by other rows' Predecessors.",
+   "fieldname": "activity_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Activity ID",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "description": "Arabic activity description. Longer than a default Data field because schedule activity names routinely exceed 140 characters.",
+   "fieldname": "activity_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Activity Name",
+   "length": 300
+  },
+  {
+   "default": "Task Dependent",
+   "fieldname": "activity_type",
+   "fieldtype": "Select",
+   "label": "Activity Type",
+   "options": "Task Dependent\nStart Milestone\nFinish Milestone\nLevel of Effort"
+  },
+  {
+   "default": "6D-8H",
+   "description": "Working calendar, e.g. 6D-8H = six working days a week, eight hours a day.",
+   "fieldname": "calendar",
+   "fieldtype": "Data",
+   "label": "Calendar"
+  },
+  {
+   "columns": 1,
+   "description": "Working days. Milestones are 0.",
+   "fieldname": "original_duration",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Original Duration"
+  },
+  {
+   "columns": 1,
+   "fieldname": "planned_start",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Planned Start"
+  },
+  {
+   "columns": 1,
+   "fieldname": "planned_finish",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Planned Finish"
+  },
+  {
+   "description": "Comma-separated links, e.g. RAI-ENG-010FS, RAI-ENG-050SS+5",
+   "fieldname": "predecessors",
+   "fieldtype": "Small Text",
+   "label": "Predecessors"
+  },
+  {
+   "description": "Slack in working days. Zero means the activity is on the critical path.",
+   "fieldname": "total_float",
+   "fieldtype": "Int",
+   "label": "Total Float"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_critical",
+   "fieldtype": "Check",
+   "label": "Critical"
+  },
+  {
+   "description": "Share of overall project progress. All rows total 100%.",
+   "fieldname": "weight_pct",
+   "fieldtype": "Float",
+   "label": "Weight %",
+   "precision": "3"
+  },
+  {
+   "fieldname": "primary_resource",
+   "fieldtype": "Data",
+   "label": "Primary Resource"
+  },
+  {
+   "default": "Not Started",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Not Started\nIn Progress\nCompleted"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ai_power_tender_management",
+ "name": "Tender Schedule Activity",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

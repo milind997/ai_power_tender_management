@@ -1,0 +1,159 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-22 22:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "role_code",
+  "role_title",
+  "tier",
+  "reports_to",
+  "box_style",
+  "col_break_1",
+  "headcount",
+  "location",
+  "experience",
+  "responsibilities",
+  "sec_flags",
+  "show_in_chart",
+  "show_in_table",
+  "mandated_by_tender",
+  "col_break_2",
+  "escalation_level",
+  "escalation_scope",
+  "escalation_response"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "description": "Unique code, e.g. ORG-010. Referenced by Reports To.",
+   "fieldname": "role_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Role Code",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "description": "Arabic job title as it should print in the chart and the staffing table.",
+   "fieldname": "role_title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Role Title",
+   "length": 200
+  },
+  {
+   "columns": 1,
+   "description": "Row of the chart, 0 at the top. 0 executive, 1 project manager, 2 support functions, 3 teams, 4 roles, 5 labour pools.",
+   "fieldname": "tier",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Tier"
+  },
+  {
+   "columns": 1,
+   "description": "Role Code of the parent box. Draws the connector line.",
+   "fieldname": "reports_to",
+   "fieldtype": "Data",
+   "label": "Reports To"
+  },
+  {
+   "columns": 1,
+   "default": "Role",
+   "description": "Colour band in the chart.",
+   "fieldname": "box_style",
+   "fieldtype": "Select",
+   "label": "Box Style",
+   "options": "Executive\nPrimary\nSupport\nTeam\nRole\nLabour"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 1,
+   "description": "Number of people. Leave 0 for 'as required'.",
+   "fieldname": "headcount",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Headcount"
+  },
+  {
+   "description": "Where the role sits: head office, site, or both.",
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Location",
+   "length": 100
+  },
+  {
+   "description": "Minimum experience, e.g. 5 years.",
+   "fieldname": "experience",
+   "fieldtype": "Data",
+   "label": "Experience",
+   "length": 100
+  },
+  {
+   "fieldname": "responsibilities",
+   "fieldtype": "Small Text",
+   "label": "Main Responsibilities"
+  },
+  {
+   "fieldname": "sec_flags",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_in_chart",
+   "fieldtype": "Check",
+   "label": "Show in Chart"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_in_table",
+   "fieldtype": "Check",
+   "label": "Show in Staffing Table"
+  },
+  {
+   "description": "Set when the tender conditions require this role. Keeps the commitment traceable.",
+   "fieldname": "mandated_by_tender",
+   "fieldtype": "Check",
+   "label": "Mandated by Tender"
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set to place this role in the escalation table.",
+   "fieldname": "escalation_level",
+   "fieldtype": "Select",
+   "label": "Escalation Level",
+   "options": "\nLevel 1\nLevel 2\nLevel 3"
+  },
+  {
+   "fieldname": "escalation_scope",
+   "fieldtype": "Small Text",
+   "label": "Escalation Scope"
+  },
+  {
+   "fieldname": "escalation_response",
+   "fieldtype": "Data",
+   "label": "Response Time",
+   "length": 100
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-22 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ai_power_tender_management",
+ "name": "Tender Organization Role",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

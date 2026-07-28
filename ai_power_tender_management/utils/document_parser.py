@@ -43,35 +43,43 @@ def _resolve_file_path(file_url: str) -> str | None:
 	return candidate if os.path.exists(candidate) else None
 
 
-def extract_text_from_pdf(file_url: str) -> str:
-	"""Extract text from a digital PDF. Returns "" if nothing can be read."""
+def extract_pdf_pages(file_url: str) -> list[tuple[int, str]]:
+	"""Extract text from a digital PDF page-by-page. Returns (1-based page, text)."""
 	path = _resolve_file_path(file_url)
 	if not path or not os.path.exists(path):
-		return ""
+		return []
 
 	# 1) Try pypdf (pure python, ships with Frappe).
 	try:
 		from pypdf import PdfReader
 
 		reader = PdfReader(path)
-		text = "\n".join((page.extract_text() or "") for page in reader.pages)
-		if text.strip():
-			return text
+		pages = [(idx + 1, page.extract_text() or "") for idx, page in enumerate(reader.pages)]
+		if any(text.strip() for _, text in pages):
+			return pages
 	except Exception:
-		frappe.log_error(title="Tender Upload: pypdf extract failed", message=frappe.get_traceback())
+		frappe.log_error(title="Tender Upload: pypdf extract failed", message=f"File: {file_url}\n\n{frappe.get_traceback()}")
 
 	# 2) Fallback to PyMuPDF (fitz) if available.
 	try:
 		import fitz  # PyMuPDF
 
 		doc = fitz.open(path)
-		text = "\n".join(page.get_text() for page in doc)
+		pages = [(idx + 1, page.get_text()) for idx, page in enumerate(doc)]
 		doc.close()
-		if text.strip():
-			return text
+		if any(text.strip() for _, text in pages):
+			return pages
 	except Exception:
-		frappe.log_error(title="Tender Upload: fitz extract failed", message=frappe.get_traceback())
+		frappe.log_error(title="Tender Upload: fitz extract failed", message=f"File: {file_url}\n\n{frappe.get_traceback()}")
 
+	return []
+
+
+def extract_text_from_pdf(file_url: str) -> str:
+	"""Extract text from a digital PDF. Returns "" if nothing can be read."""
+	pages = extract_pdf_pages(file_url)
+	if pages:
+		return "\n".join(text for _, text in pages)
 	return ""
 
 
@@ -122,7 +130,7 @@ def ocr_pdf_pages(file_url: str, langs: str = "ara+eng", dpi: int = 200, page_ra
 	if not path or not os.path.exists(path):
 		return []
 	if not ocr_available():
-		frappe.log_error(title="Tender OCR: Tesseract not available", message=TESSERACT_CMD)
+		frappe.log_error(title="Tender OCR: Tesseract not available", message=f"File: {file_url}\nTesseract: {TESSERACT_CMD}")
 		return []
 
 	import io
@@ -137,7 +145,7 @@ def ocr_pdf_pages(file_url: str, langs: str = "ara+eng", dpi: int = 200, page_ra
 	try:
 		doc = fitz.open(path)
 	except Exception:
-		frappe.log_error(title="Tender OCR: could not open PDF", message=frappe.get_traceback())
+		frappe.log_error(title="Tender OCR: could not open PDF", message=f"File: {file_url}\n\n{frappe.get_traceback()}")
 		return []
 
 	indexes = range(doc.page_count) if page_range is None else page_range
@@ -147,7 +155,7 @@ def ocr_pdf_pages(file_url: str, langs: str = "ara+eng", dpi: int = 200, page_ra
 			img = Image.open(io.BytesIO(pix.tobytes("png")))
 			text = pytesseract.image_to_string(img, lang=langs)
 		except Exception:
-			frappe.log_error(title=f"Tender OCR: page {i + 1} failed", message=frappe.get_traceback())
+			frappe.log_error(title=f"Tender OCR: page {i + 1} failed", message=f"File: {file_url}\n\n{frappe.get_traceback()}")
 			text = ""
 		out.append((i + 1, text))
 	doc.close()
@@ -236,7 +244,7 @@ def excel_to_text_grid(file_url: str, max_rows: int = 500) -> str:
 		wb.close()
 		return "\n".join(lines)
 	except Exception:
-		frappe.log_error(title="Tender Upload: excel_to_text_grid failed", message=frappe.get_traceback())
+		frappe.log_error(title="Tender Upload: excel_to_text_grid failed", message=f"File: {file_url}\n\n{frappe.get_traceback()}")
 		return ""
 
 
@@ -262,7 +270,7 @@ def extract_rows_from_excel(file_url: str) -> list[dict]:
 		rows = list(ws.iter_rows(values_only=True))
 		wb.close()
 	except Exception:
-		frappe.log_error(title="Tender Upload: openpyxl read failed", message=frappe.get_traceback())
+		frappe.log_error(title="Tender Upload: openpyxl read failed", message=f"File: {file_url}\n\n{frappe.get_traceback()}")
 		return []
 
 	if not rows:
