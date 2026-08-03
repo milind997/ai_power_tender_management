@@ -73,6 +73,7 @@ frappe.TenderUpload.View = class TenderUploadView {
 		this.controls = {};
 		this.loading = {};
 		this.slots = {}; // slot -> { file_url, file_name, file_format, ai_status, readable_status, attached }
+		this.summary = null;
 		for (const key of Object.keys(frappe.TenderUpload.SLOTS)) {
 			this.slots[key] = this.empty_slot();
 		}
@@ -503,6 +504,7 @@ frappe.TenderUpload.View = class TenderUploadView {
 			this.slots.tender.ai_status = "Processing";
 			this.render_file("tender");
 			frappe.show_alert({ message: res.message, indicator: "blue" });
+			this.update_steps();
 			this.start_poll();
 			return;
 		}
@@ -536,6 +538,7 @@ frappe.TenderUpload.View = class TenderUploadView {
 			this.slots.boq.ai_status = "Processing";
 			this.render_file("boq");
 			frappe.show_alert({ message: res.message, indicator: "blue" });
+			this.update_steps();
 			this.start_poll();
 			return;
 		}
@@ -593,6 +596,7 @@ frappe.TenderUpload.View = class TenderUploadView {
 		// Queued as a background job — poll instead of reporting a final count.
 		if (res.background) {
 			frappe.show_alert({ message: res.message, indicator: "blue" });
+			this.refresh_summary();
 			this.start_poll();
 			return;
 		}
@@ -636,6 +640,7 @@ frappe.TenderUpload.View = class TenderUploadView {
 		for (const control of Object.values(this.controls)) control.set_value("");
 		this.controls.status.set_value("Draft");
 		this.tender_name = null;
+		this.summary = null;
 		this.page.clear_indicator && this.page.clear_indicator();
 		this.$body.find(".tu-result").addClass("hidden");
 		this.refresh_header();
@@ -653,6 +658,7 @@ frappe.TenderUpload.View = class TenderUploadView {
 	}
 
 	render_result(s) {
+		this.summary = s || {};
 		const $r = this.$body.find(".tu-result").removeClass("hidden");
 		this.set_badge($r.find('[data-r="tender_document_status"]'), s.tender_document_status);
 		this.set_badge($r.find('[data-r="boq_status"]'), s.boq_status);
@@ -661,6 +667,10 @@ frappe.TenderUpload.View = class TenderUploadView {
 		$r.find('[data-r="missing_information_count"]').text(s.missing_information_count);
 		$r.find('[data-r="boq_items_count"]').text(s.boq_items_count);
 		$r.find('[data-r="proposal_sections_count"]').text(s.proposal_sections_count || 0);
+		if (s.tender_status && this.controls.status) {
+			this.controls.status.set_value(s.tender_status);
+		}
+		this.update_steps();
 	}
 
 	// -----------------------------------------------------------------------
@@ -682,16 +692,67 @@ frappe.TenderUpload.View = class TenderUploadView {
 
 	update_steps() {
 		const status = (this.controls.status && this.controls.status.get_value()) || "Draft";
+		const summary = this.summary || {};
+		const status_at_least = (targets) => targets.includes(status);
+		const has_uploaded_file = Object.values(this.slots).some((s) => s.file_url);
+		const has_uploaded_summary = [summary.tender_document_status, summary.boq_status]
+			.some((s) => s && s !== "Not Uploaded");
+		const tender_analyzed = Boolean(
+			summary.tender_summary_created
+			|| summary.ai_summary_count
+			|| ["Processed", "Extracted", "AI Analyzed"].includes(summary.tender_document_status)
+			|| status_at_least(["AI Analyzed", "BOQ Extracted", "Proposal Drafted", "Reviewed", "Submitted"])
+		);
+		const boq_extracted = Boolean(
+			summary.boq_items_count
+			|| ["Processed", "Extracted", "BOQ Extracted"].includes(summary.boq_status)
+			|| status_at_least(["BOQ Extracted", "Proposal Drafted", "Reviewed", "Submitted"])
+		);
+		const proposal_generated = Boolean(
+			summary.proposal_sections_count
+			|| status_at_least(["Proposal Drafted", "Reviewed", "Submitted"])
+		);
+		const tender_processing = this.slots.tender && this.slots.tender.ai_status === "Processing";
+		const boq_processing = this.slots.boq && this.slots.boq.ai_status === "Processing";
+		const running_jobs = (summary.jobs || []).filter((job) => ["queued", "running"].includes(job.state));
 		const done = new Set();
 		if (this.tender_name) done.add(0); // Tender Info
-		if (Object.values(this.slots).some((s) => s.file_url)) done.add(1); // Upload
-		if (["AI Analyzed", "BOQ Extracted", "Proposal Drafted", "Reviewed", "Submitted"].includes(status)) done.add(2);
-		if (["BOQ Extracted", "Proposal Drafted", "Reviewed", "Submitted"].includes(status)) done.add(3);
+		if (has_uploaded_file || has_uploaded_summary) done.add(1); // Upload
+		if (tender_analyzed) done.add(2);
+		if (boq_extracted) done.add(3);
+		if (proposal_generated) done.add(4);
+		if (status === "Submitted") done.add(5);
+
+		let active = 0;
+		if (!this.tender_name) {
+			active = 0;
+		} else if (!done.has(1)) {
+			active = 1;
+		} else if (
+			tender_processing
+			|| running_jobs.some((job) => ["tender-info", "analyze"].includes(job.key))
+			|| !tender_analyzed
+		) {
+			active = 2;
+		} else if (
+			boq_processing
+			|| running_jobs.some((job) => job.key === "boq")
+			|| !boq_extracted
+		) {
+			active = 3;
+		} else if (
+			running_jobs.some((job) => ["proposal", "proposal-section", "schedule", "organization"].includes(job.key))
+			|| !proposal_generated
+		) {
+			active = 4;
+		} else {
+			active = 5;
+		}
 
 		this.$body.find(".tu-step").each((i, el) => {
 			const $el = $(el);
 			$el.toggleClass("is-done", done.has(i));
-			$el.toggleClass("is-active", i === 1); // Upload Documents is the current step
+			$el.toggleClass("is-active", i === active);
 		});
 	}
 
