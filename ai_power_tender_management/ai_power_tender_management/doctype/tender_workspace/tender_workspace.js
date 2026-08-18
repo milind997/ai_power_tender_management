@@ -48,6 +48,9 @@ function inject_tender_workspace_styles() {
 		control("org_notes"),
 		grid("uploaded_documents", "file_name"),
 		grid("uploaded_documents", "ai_summary"),
+		grid("extracted_documents", "source_document"),
+		grid("extracted_documents", "title"),
+		grid("extracted_documents", "extracted_text"),
 		grid("ai_summary", "extracted_text"),
 		grid("ai_summary", "source_document"),
 		grid("boq_items", "description"),
@@ -589,6 +592,8 @@ frappe.ui.form.on("Tender Workspace", {
 		// A compact at-a-glance summary works even for a brand-new record.
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
+		render_extracted_documents_preview_action(frm);
 		highlight_summary_rows(frm);
 		highlight_boq_rows(frm);
 
@@ -870,28 +875,343 @@ frappe.ui.form.on("Tender Document Item", {
 	file(frm) {
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
 	},
 	file_name(frm) {
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
 	},
 	ai_status(frm) {
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
 	},
 	readable_status(frm) {
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
 	},
 	uploaded_documents_add(frm) {
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
 	},
 	uploaded_documents_remove(frm) {
 		render_tender_dashboard(frm);
 		highlight_document_rows(frm);
+		render_uploaded_documents_preview_action(frm);
 	},
 });
+
+frappe.ui.form.on("Tender Extracted Document", {
+	attachment(frm) {
+		render_extracted_documents_preview_action(frm);
+	},
+	source_document(frm) {
+		render_extracted_documents_preview_action(frm);
+	},
+	status(frm) {
+		render_extracted_documents_preview_action(frm);
+	},
+	extracted_documents_add(frm) {
+		render_extracted_documents_preview_action(frm);
+	},
+	extracted_documents_remove(frm) {
+		render_extracted_documents_preview_action(frm);
+	},
+});
+
+function render_uploaded_documents_preview_action(frm) {
+	const field = frm.fields_dict.uploaded_documents;
+	if (!field || !field.$wrapper) return;
+
+	field.$wrapper.find(".tender-document-preview-action").remove();
+
+	if (!get_uploaded_document_attachments(frm).length) return;
+
+	const $action = $(`
+		<div class="tender-document-preview-action" style="margin-top:10px;display:flex;justify-content:flex-end;">
+			<button type="button" class="btn btn-default btn-sm" style="display:inline-flex;align-items:center;gap:6px;">
+				${tender_icon("attachment", "sm")}
+				<span>${__("Preview Attachments")}</span>
+			</button>
+		</div>
+	`);
+
+	$action.find("button").on("click", () => {
+		show_uploaded_documents_preview_dialog(frm);
+	});
+
+	field.$wrapper.append($action);
+}
+
+function render_extracted_documents_preview_action(frm) {
+	const field = frm.fields_dict.extracted_documents;
+	if (!field || !field.$wrapper) return;
+
+	field.$wrapper.find(".tender-extracted-document-preview-action").remove();
+
+	if (!get_extracted_document_attachments(frm).length) return;
+
+	const $action = $(`
+		<div class="tender-extracted-document-preview-action" style="margin-top:10px;display:flex;justify-content:flex-end;">
+			<button type="button" class="btn btn-default btn-sm" style="display:inline-flex;align-items:center;gap:6px;">
+				${tender_icon("attachment", "sm")}
+				<span>${__("Preview Extracted Attachments")}</span>
+			</button>
+		</div>
+	`);
+
+	$action.find("button").on("click", () => {
+		show_extracted_documents_preview_dialog(frm);
+	});
+
+	field.$wrapper.append($action);
+}
+
+function show_uploaded_documents_preview_dialog(frm) {
+	const attachments = get_uploaded_document_attachments(frm);
+
+	if (!attachments.length) {
+		frappe.msgprint({
+			title: __("No Attachments"),
+			message: __("No uploaded document attachments are available to preview."),
+			indicator: "orange",
+		});
+		return;
+	}
+
+	const dialog = new frappe.ui.Dialog({
+		title: __("Preview Attachments"),
+		size: "extra-large",
+		fields: [{ fieldname: "preview_html", fieldtype: "HTML" }],
+	});
+
+	dialog.fields_dict.preview_html.$wrapper.html(build_uploaded_documents_preview_html(attachments));
+	dialog.show();
+}
+
+function show_extracted_documents_preview_dialog(frm) {
+	const attachments = get_extracted_document_attachments(frm);
+
+	if (!attachments.length) {
+		frappe.msgprint({
+			title: __("No Attachments"),
+			message: __("No extracted document attachments are available to preview."),
+			indicator: "orange",
+		});
+		return;
+	}
+
+	const dialog = new frappe.ui.Dialog({
+		title: __("Preview Extracted Attachments"),
+		size: "extra-large",
+		fields: [{ fieldname: "preview_html", fieldtype: "HTML" }],
+	});
+
+	dialog.fields_dict.preview_html.$wrapper.html(build_uploaded_documents_preview_html(attachments));
+	dialog.show();
+}
+
+function get_uploaded_document_attachments(frm) {
+	const seen = {};
+	const attachments = [];
+
+	(frm.doc.uploaded_documents || []).forEach((row, index) => {
+		if (!row.file || seen[row.file]) return;
+
+		seen[row.file] = true;
+		attachments.push({
+			url: row.file,
+			document_type: row.document_type,
+			file_name: row.file_name,
+			file_format: row.file_format,
+			ai_status: row.ai_status,
+			readable_status: row.readable_status,
+			ai_summary: row.ai_summary,
+			idx: index + 1,
+		});
+	});
+
+	return attachments;
+}
+
+function get_extracted_document_attachments(frm) {
+	const seen = {};
+	const attachments = [];
+
+	(frm.doc.extracted_documents || []).forEach((row, index) => {
+		if (!row.attachment || seen[row.attachment]) return;
+
+		seen[row.attachment] = true;
+		attachments.push({
+			url: row.attachment,
+			document_type: row.title || row.extraction_type || row.document_type,
+			file_name: row.source_document,
+			file_format: "",
+			ai_status: row.status,
+			readable_status: row.confidence || row.confidence === 0
+				? __("Confidence: {0}%", [flt(row.confidence)])
+				: "",
+			ai_summary: row.extracted_text,
+			idx: index + 1,
+		});
+	});
+
+	return attachments;
+}
+
+function build_uploaded_documents_preview_html(attachments) {
+	const count = attachments.length;
+	const title = count === 1 ? __("1 Attachment") : __("{0} Attachments", [count]);
+
+	return `
+		<style>
+			.tender-document-preview-shell {
+				max-height: 75vh;
+				overflow: auto;
+				padding-right: 6px;
+			}
+			.tender-document-preview-title {
+				color: var(--text-muted, #6b7280);
+				font-size: 12px;
+				font-weight: 700;
+				margin-bottom: 16px;
+			}
+			.tender-document-preview-grid {
+				align-items: start;
+				display: grid;
+				gap: 16px;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+			}
+			.tender-document-preview-card {
+				background: var(--card-bg, #fff);
+				border: 1px solid var(--border-color, #dfe3e8);
+				border-radius: 8px;
+				overflow: hidden;
+			}
+			.tender-document-preview-card-head {
+				align-items: center;
+				border-bottom: 1px solid var(--border-color, #eef0f2);
+				display: flex;
+				gap: 12px;
+				justify-content: space-between;
+				padding: 10px 12px;
+			}
+			.tender-document-preview-card-title {
+				color: var(--text-color, #1f272e);
+				font-weight: 700;
+				overflow-wrap: anywhere;
+			}
+			.tender-document-preview-card-muted {
+				color: var(--text-muted, #6b7280);
+				font-size: 12px;
+				overflow-wrap: anywhere;
+			}
+			.tender-document-preview-filename {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
+			.tender-document-preview-summary {
+				color: var(--text-muted, #6b7280);
+				font-size: 12px;
+				line-height: 1.45;
+				margin-top: 6px;
+				max-height: 48px;
+				overflow: hidden;
+			}
+			.tender-document-preview-open {
+				align-items: center;
+				display: inline-flex;
+				flex: 0 0 auto;
+				gap: 6px;
+			}
+			@media (max-width: 1200px) {
+				.tender-document-preview-grid {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+		<div class="tender-document-preview-shell">
+			<div class="tender-document-preview-title">${tender_escape(title)}</div>
+			<div class="tender-document-preview-grid">
+				${attachments.map((attachment) => build_uploaded_document_card_html(attachment)).join("")}
+			</div>
+		</div>
+	`;
+}
+
+function build_uploaded_document_card_html(attachment) {
+	const safe_url = tender_escape(attachment.url);
+	const filename = tender_escape(
+		attachment.file_name || (attachment.url || "").split("/").pop() || attachment.url
+	);
+	const document_type = tender_escape(attachment.document_type || __("Attachment"));
+	const meta = [
+		attachment.file_format,
+		attachment.ai_status,
+		attachment.readable_status ? __("Readable: {0}", [attachment.readable_status]) : null,
+	]
+		.filter(Boolean)
+		.map((value) => tender_escape(value))
+		.join(" | ");
+	const summary = attachment.ai_summary ? tender_escape(attachment.ai_summary) : "";
+
+	return `
+		<div class="tender-document-preview-card">
+			<div class="tender-document-preview-card-head">
+				<div style="min-width:0;">
+					<div class="tender-document-preview-card-title">${attachment.idx}. ${document_type}</div>
+					<div class="tender-document-preview-card-muted tender-document-preview-filename">${filename}</div>
+					${meta ? `<div class="tender-document-preview-card-muted">${meta}</div>` : ""}
+					${summary ? `<div class="tender-document-preview-summary">${summary}</div>` : ""}
+				</div>
+				<a href="${safe_url}" target="_blank" rel="noopener" class="btn btn-default btn-sm tender-document-preview-open">
+					${tender_icon("external-link", "sm")}
+					<span>${__("Open")}</span>
+				</a>
+			</div>
+			${render_uploaded_document_file_html(attachment.url)}
+		</div>
+	`;
+}
+
+function render_uploaded_document_file_html(url) {
+	const is_pdf = /\.pdf(\?|$)/i.test(url);
+	const is_image = /\.(png|jpg|jpeg|gif|bmp|webp)(\?|$)/i.test(url);
+	const safe_url = tender_escape(url);
+
+	if (is_pdf) {
+		return `
+			<iframe
+				src="${safe_url}"
+				style="width:100%;height:620px;border:0;background:#fff;display:block;"
+			></iframe>
+		`;
+	}
+
+	if (is_image) {
+		return `
+			<div style="padding:12px;background:var(--control-bg,#f8fafc);">
+				<img
+					src="${safe_url}"
+					style="width:100%;max-height:620px;object-fit:contain;display:block;margin:auto;"
+				/>
+			</div>
+		`;
+	}
+
+	return `
+		<div style="padding:16px;background:var(--control-bg,#f8fafc);">
+			<a href="${safe_url}" target="_blank" rel="noopener" class="btn btn-default btn-sm tender-document-preview-open">
+				${tender_icon("external-link", "sm")}
+				<span>${__("Open Attachment")}</span>
+			</a>
+		</div>
+	`;
+}
 
 // ---------------------------------------------------------------------------
 // Background Processes panel

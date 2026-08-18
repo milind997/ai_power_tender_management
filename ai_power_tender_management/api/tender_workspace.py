@@ -23,6 +23,7 @@ from frappe import _
 from frappe.utils import cint, flt
 from frappe.utils.file_manager import save_file
 
+from ai_power_tender_management.services import extracted_documents
 from ai_power_tender_management.utils import ai_service, document_parser, orgchart, schedule
 
 # Placeholder text shown until the real AI extraction is connected.
@@ -798,6 +799,9 @@ def _analyze_tender_document_sync(tender_workspace_name):
 		tender_doc.ai_status = "OCR Required"
 		tender_doc.readable_status = "OCR Required"
 		tender_doc.ai_summary = user_msg
+		extracted_documents.record_summary_rows(
+			doc, tender_doc, [], "OCR Required", user_msg, error_log=error_log
+		)
 		doc.save()
 		frappe.db.commit()
 		return {
@@ -811,26 +815,31 @@ def _analyze_tender_document_sync(tender_workspace_name):
 
 	# (Re)generate summary rows for this source (from text, vision, or placeholder).
 	doc.ai_summary = [r for r in doc.ai_summary if r.source_document != source]
+	summary_rows_for_source = []
 
 	if ai_rows:
 		for row in ai_rows:
-			doc.append("ai_summary", {
+			payload = {
 				"summary_type": row.get("summary_type"),
 				"extracted_text": row.get("extracted_text") or "",
 				"source_document": source,
 				"page_number": str(row.get("page_number") or ""),
 				"confirmed": 0,
-			})
+			}
+			doc.append("ai_summary", payload)
+			summary_rows_for_source.append(payload)
 	else:
 		for summary_type, count in SUMMARY_BLUEPRINT.items():
 			for i in range(count):
-				doc.append("ai_summary", {
+				payload = {
 					"summary_type": summary_type,
 					"extracted_text": PLACEHOLDER_TEXT,
 					"source_document": source,
 					"page_number": str(i + 1),
 					"confirmed": 0,
-				})
+				}
+				doc.append("ai_summary", payload)
+				summary_rows_for_source.append(payload)
 
 	error_log = None
 	if ai_rows:
@@ -865,6 +874,9 @@ def _analyze_tender_document_sync(tender_workspace_name):
 	tender_doc.readable_status = "Yes"
 	tender_doc.ai_summary = child_summary
 	doc.status = "AI Analyzed"
+	extracted_documents.record_summary_rows(
+		doc, tender_doc, summary_rows_for_source, result_status, result_message, error_log=error_log
+	)
 	_update_knowledge_cache_fields(doc, preferred_text_by_row={tender_doc.name: document_text})
 	doc.save()
 	frappe.db.commit()
@@ -934,7 +946,7 @@ def _extract_tender_info_sync(tender_workspace_name):
 		frappe.throw(_("Please upload Tender Document / Terms & Specifications first."))
 
 	if not ai_service.is_enabled():
-		return _failure_result(
+		result = _failure_result(
 			"AI Not Configured",
 			_("AI Settings API key is not configured. Cannot extract tender info."),
 			"Tender Extract Info: AI not configured",
@@ -942,6 +954,12 @@ def _extract_tender_info_sync(tender_workspace_name):
 			log_message=f"File: {tender_doc.file_name} ({tender_doc.file})",
 			filled=[],
 		)
+		extracted_documents.record_tender_info(
+			doc, tender_doc, {}, [], result["status"], result["message"], result.get("error_log")
+		)
+		doc.save()
+		frappe.db.commit()
+		return result
 
 	file_url = tender_doc.file
 	file_format = (tender_doc.file_format or _file_format_from_url(file_url)).lower()
@@ -949,6 +967,14 @@ def _extract_tender_info_sync(tender_workspace_name):
 	cached_info = _cached_tender_info(doc)
 	if cached_info:
 		filled = _apply_tender_info(doc, cached_info)
+		extracted_documents.record_tender_info(
+			doc,
+			tender_doc,
+			cached_info,
+			filled,
+			"Cached",
+			_("Reused cached tender info ({0} field(s)).").format(len(filled)),
+		)
 		_update_knowledge_cache_fields(doc)
 		doc.save()
 		frappe.db.commit()
@@ -967,7 +993,7 @@ def _extract_tender_info_sync(tender_workspace_name):
 		info = _ai_tender_info_pdf(file_url)
 
 	if not info:
-		return _failure_result(
+		result = _failure_result(
 			"AI Failed",
 			_("Could not extract tender info from the document. Open the Error Log below, then retry."),
 			"Tender Extract Info: no fields extracted",
@@ -975,10 +1001,16 @@ def _extract_tender_info_sync(tender_workspace_name):
 			log_message=f"File: {tender_doc.file_name} ({file_url})\nFormat: {file_format}\nText length: {len((text or '').strip())}",
 			filled=[],
 		)
+		extracted_documents.record_tender_info(
+			doc, tender_doc, {}, [], result["status"], result["message"], result.get("error_log")
+		)
+		doc.save()
+		frappe.db.commit()
+		return result
 
 	filled = _apply_tender_info(doc, info)
 	if not filled:
-		return _failure_result(
+		result = _failure_result(
 			"AI Failed",
 			_("AI found no usable tender fields to apply. Open the Error Log below, then retry."),
 			"Tender Extract Info: no usable fields",
@@ -990,6 +1022,20 @@ def _extract_tender_info_sync(tender_workspace_name):
 			),
 			filled=[],
 		)
+		extracted_documents.record_tender_info(
+			doc, tender_doc, info, [], result["status"], result["message"], result.get("error_log")
+		)
+		doc.save()
+		frappe.db.commit()
+		return result
+	extracted_documents.record_tender_info(
+		doc,
+		tender_doc,
+		info,
+		filled,
+		"Extracted",
+		_("Extracted {0} field(s) from the tender document.").format(len(filled)),
+	)
 	_update_knowledge_cache_fields(doc, preferred_text_by_row={tender_doc.name: text})
 	doc.save()
 	frappe.db.commit()
@@ -1217,6 +1263,14 @@ def _extract_boq_sync(tender_workspace_name):
 				)
 				boq_doc.ai_status = "OCR Required"
 				boq_doc.readable_status = "OCR Required"
+				extracted_documents.record_boq_result(
+					doc,
+					boq_doc,
+					[],
+					"OCR Required",
+					_("This BOQ PDF has no readable text. Configure the AI Settings API key (vision) or use OCR."),
+					error_log=error_log,
+				)
 				doc.save()
 				frappe.db.commit()
 				return _result_with_error_log({
@@ -1236,8 +1290,6 @@ def _extract_boq_sync(tender_workspace_name):
 	if not rows:
 		doc.set("boq_items", [])
 		boq_doc.ai_status = "Failed"
-		doc.save()
-		frappe.db.commit()
 		error_log = _log_tender_error(
 			"Tender Extract BOQ: no items extracted",
 			doc.name,
@@ -1248,14 +1300,20 @@ def _extract_boq_sync(tender_workspace_name):
 				"result). No placeholder rows were inserted."
 			),
 		)
+		message = _(
+			"No BOQ items could be extracted from this file. Please check that it "
+			"contains a recognisable Bill of Quantities table (item / description / "
+			"unit / quantity columns)."
+		)
+		extracted_documents.record_boq_result(
+			doc, boq_doc, [], "No Items Found", message, error_log=error_log
+		)
+		doc.save()
+		frappe.db.commit()
 		return _result_with_error_log({
 			"status": "No Items Found",
 			"items_count": 0,
-			"message": _(
-				"No BOQ items could be extracted from this file. Please check that it "
-				"contains a recognisable Bill of Quantities table (item / description / "
-				"unit / quantity columns)."
-			),
+			"message": message,
 		}, error_log)
 
 	# Replace existing BOQ items with the freshly extracted set.
@@ -1266,6 +1324,9 @@ def _extract_boq_sync(tender_workspace_name):
 	boq_doc.ai_status = "Extracted"
 	boq_doc.readable_status = boq_doc.readable_status if boq_doc.readable_status == "OCR Required" else "Yes"
 	doc.status = "BOQ Extracted"
+	extracted_documents.record_boq_result(
+		doc, boq_doc, rows, status, _("BOQ extracted successfully")
+	)
 	_update_knowledge_cache_fields(doc, preferred_text_by_row={boq_doc.name: source_text_for_cache})
 	doc.save()
 	frappe.db.commit()
@@ -3650,23 +3711,34 @@ def _ocr_analyze_pipeline(tender_workspace_name):
 		tender_doc = _find_document(doc, TENDER_DOC_TYPES)
 		doc.ai_summary = [r for r in doc.ai_summary if r.source_document != source]
 		seen = set()
+		summary_rows_for_source = []
 		for row in collected:
 			key = (row.get("summary_type"), (row.get("extracted_text") or "")[:60])
 			if key in seen:
 				continue
 			seen.add(key)
-			doc.append("ai_summary", {
+			payload = {
 				"summary_type": row.get("summary_type"),
 				"extracted_text": row.get("extracted_text") or "",
 				"source_document": source,
 				"page_number": str(row.get("page_number") or ""),
 				"confirmed": 0,
-			})
+			}
+			doc.append("ai_summary", payload)
+			summary_rows_for_source.append(payload)
 
 		if tender_doc:
 			tender_doc.ai_status = "Processed"
 			tender_doc.readable_status = "Yes"
 			tender_doc.ai_summary = _("AI analysis complete (OCR + AI).")
+			extracted_documents.record_ocr_text(doc, tender_doc, ocr_text)
+			extracted_documents.record_summary_rows(
+				doc,
+				tender_doc,
+				summary_rows_for_source,
+				"Processed",
+				_("AI analysis complete (OCR + AI)."),
+			)
 		doc.status = "AI Analyzed"
 		_update_knowledge_cache_fields(doc, preferred_text_by_row={td_name: ocr_text})
 		doc.save()
@@ -3718,10 +3790,6 @@ def _ocr_boq_pipeline(tender_workspace_name):
 		rows = _filter_boq_rows(rows)
 
 		if not rows:
-			frappe.db.set_value("Tender Document Item", boq_name, {
-				"ai_status": "OCR Required", "readable_status": "OCR Required",
-			}, update_modified=False)
-			frappe.db.commit()
 			error_log = _log_tender_error(
 				"Tender OCR BOQ: no items extracted",
 				doc.name,
@@ -3731,6 +3799,18 @@ def _ocr_boq_pipeline(tender_workspace_name):
 					f"BOQ text length: {len(boq_text.strip())}"
 				),
 			)
+			boq_doc.ai_status = "OCR Required"
+			boq_doc.readable_status = "OCR Required"
+			extracted_documents.record_boq_result(
+				doc,
+				boq_doc,
+				[],
+				"OCR Required",
+				_("Could not extract BOQ items."),
+				error_log=error_log,
+			)
+			doc.save()
+			frappe.db.commit()
 			_publish(doc.name, _("Could not extract BOQ items."), 100, reload=True, job_key="boq", state="failed", error_log=error_log)
 			return
 
@@ -3743,6 +3823,14 @@ def _ocr_boq_pipeline(tender_workspace_name):
 		if boq_doc:
 			boq_doc.ai_status = "Extracted"
 			boq_doc.readable_status = "Yes"
+			extracted_documents.record_ocr_text(doc, boq_doc, boq_text)
+			extracted_documents.record_boq_result(
+				doc,
+				boq_doc,
+				rows,
+				"Extracted",
+				_("BOQ extracted ({0} items).").format(len(rows)),
+			)
 		doc.status = "BOQ Extracted"
 		_update_knowledge_cache_fields(doc, preferred_text_by_row={boq_name: boq_text})
 		doc.save()

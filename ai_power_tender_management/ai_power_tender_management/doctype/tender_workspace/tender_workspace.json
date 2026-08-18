@@ -29,6 +29,8 @@
   "notes",
   "documents_section",
   "uploaded_documents",
+  "extracted_documents_section",
+  "extracted_documents",
   "knowledge_cache_section",
   "knowledge_version",
   "knowledge_fingerprint",
@@ -191,6 +193,18 @@
    "fieldtype": "Table",
    "label": "Uploaded Documents",
    "options": "Tender Document Item"
+  },
+  {
+   "description": "AI/OCR outputs derived from the uploaded files. Review these rows before using the downstream BOQ, proposal, schedule, and organization outputs.",
+   "fieldname": "extracted_documents_section",
+   "fieldtype": "Section Break",
+   "label": "Extracted Documents"
+  },
+  {
+   "fieldname": "extracted_documents",
+   "fieldtype": "Table",
+   "label": "Extracted Documents",
+   "options": "Tender Extracted Document"
   },
   {
    "collapsible": 1,

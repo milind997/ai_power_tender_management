@@ -1,10 +1,34 @@
 # Copyright (c) 2026, milind and Contributors
 # See license.txt
 
+from types import SimpleNamespace
+
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from ai_power_tender_management.api import tender_workspace
+from ai_power_tender_management.services import extracted_documents
 from ai_power_tender_management.utils import ai_service
+
+
+class _FakeMeta:
+	def has_field(self, fieldname):
+		return fieldname == "extracted_documents"
+
+
+class _FakeDoc:
+	meta = _FakeMeta()
+
+	def __init__(self):
+		self.extracted_documents = []
+
+	def append(self, fieldname, payload):
+		row = frappe._dict(payload)
+		getattr(self, fieldname).append(row)
+		return row
+
+	def set(self, fieldname, value):
+		setattr(self, fieldname, value)
 
 
 class TestTenderWorkspace(FrappeTestCase):
@@ -119,3 +143,63 @@ class TestTenderWorkspace(FrappeTestCase):
 		self.assertIn("password=[redacted]", text)
 		self.assertNotIn("sk-testSECRET", text)
 		self.assertTrue(text.endswith("...[truncated]"))
+
+	def test_extracted_document_service_records_summary_rows(self):
+		doc = _FakeDoc()
+		source = SimpleNamespace(
+			name="DOC-ROW-1",
+			file="/private/files/tender.pdf",
+			file_name="Tender.pdf",
+			document_type="Tender Document",
+		)
+
+		extracted_documents.record_summary_rows(
+			doc,
+			source,
+			[{
+				"summary_type": "Dangerous Clause",
+				"extracted_text": "Penalty applies after the closing date.",
+				"page_number": "7",
+			}],
+			"Processed",
+			"Analysis complete.",
+		)
+
+		self.assertEqual(len(doc.extracted_documents), 1)
+		row = doc.extracted_documents[0]
+		self.assertEqual(row.source_row, "DOC-ROW-1")
+		self.assertEqual(row.attachment, "/private/files/tender.pdf")
+		self.assertEqual(row.extraction_type, "AI Summary")
+		self.assertEqual(row.title, "Dangerous Clause")
+		self.assertEqual(row.page_number, "7")
+
+	def test_extracted_document_service_replaces_same_source_and_type(self):
+		doc = _FakeDoc()
+		source = {"name": "DOC-ROW-1", "file": "/files/boq.xlsx", "file_name": "BOQ.xlsx"}
+
+		extracted_documents.record_boq_result(
+			doc, source, [{"description": "Old", "quantity": 1}], "Extracted", "Old result"
+		)
+		extracted_documents.record_boq_result(
+			doc, source, [{"description": "New", "quantity": 2}], "Cached", "Cached result"
+		)
+
+		self.assertEqual(len(doc.extracted_documents), 1)
+		row = doc.extracted_documents[0]
+		self.assertEqual(row.status, "Cached")
+		self.assertEqual(row.row_count, 1)
+		self.assertIn("New", row.extracted_text)
+
+	def test_google_vertex_ai_is_enabled_without_api_key(self):
+		class Settings:
+			enabled = 1
+			provider = "Google Vertex AI"
+			google_project_id = "test-project"
+
+		original = ai_service.get_settings
+		try:
+			ai_service.get_settings = lambda: Settings()
+			self.assertTrue(ai_service.is_enabled())
+			self.assertTrue(ai_service.supports_pdf_vision())
+		finally:
+			ai_service.get_settings = original

@@ -24,6 +24,16 @@ import time
 import frappe
 
 SETTINGS_DOCTYPE = "AI Settings"
+GOOGLE_VERTEX_PROVIDER = "Google Vertex AI"
+
+try:
+	from smart_journal.smart_journal.doctype.ai_settings.ai_settings import (
+		google_vertex_generate_content,
+		openai_chat_create,
+	)
+except Exception:
+	google_vertex_generate_content = None
+	openai_chat_create = None
 
 # Conservative input-token budget per minute (org limit is ~10k). Used to pace
 # chunked requests so a large document does not trip the rate limit.
@@ -72,10 +82,12 @@ def _api_key(settings):
 
 
 def is_enabled() -> bool:
-	"""True when AI Settings is enabled and an API key is configured."""
+	"""True when AI Settings is enabled and the selected provider is configured."""
 	settings = get_settings()
 	if not settings or not getattr(settings, "enabled", 0):
 		return False
+	if (settings.provider or "").strip() == GOOGLE_VERTEX_PROVIDER:
+		return bool((getattr(settings, "google_project_id", "") or "").strip())
 	return bool(_api_key(settings))
 
 
@@ -136,7 +148,7 @@ def get_llm_config(task: str | None = None) -> dict:
 		"base_url": settings.base_url or None,
 		"max_tokens": int(settings.max_tokens or 2000),
 		"timeout": int(settings.timeout or 120),
-		"configured": bool(_api_key(settings)),
+		"configured": bool(is_enabled()),
 	}
 
 
@@ -156,7 +168,6 @@ def complete(
 
 	settings = get_settings()
 	provider = (settings.provider or "").strip().lower()
-	api_key = _api_key(settings)
 	model = get_task_model(settings, task)
 	max_tokens = int(max_tokens or settings.max_tokens or 2000)
 	timeout = int(settings.timeout or 120)
@@ -164,6 +175,7 @@ def complete(
 
 	try:
 		if provider == "anthropic":
+			api_key = _api_key(settings)
 			import anthropic
 
 			kwargs = {"api_key": api_key, "timeout": timeout, "max_retries": 4}
@@ -180,7 +192,18 @@ def complete(
 				getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text"
 			).strip()
 
+		if provider == GOOGLE_VERTEX_PROVIDER.lower():
+			if not google_vertex_generate_content:
+				frappe.log_error(
+					title="Tender AI: Google Vertex helper unavailable",
+					message="Install/enable smart_journal or provide google-genai support before using Google Vertex AI.",
+				)
+				return None
+			contents = _combined_prompt(prompt, system)
+			return google_vertex_generate_content(settings, model, contents, max_tokens=max_tokens).strip()
+
 		# OpenAI / OpenAI-compatible gateways.
+		api_key = _api_key(settings)
 		from openai import OpenAI
 
 		kwargs = {"api_key": api_key, "timeout": timeout}
@@ -191,7 +214,10 @@ def complete(
 		if system:
 			messages.append({"role": "system", "content": system})
 		messages.append({"role": "user", "content": prompt})
-		resp = client.chat.completions.create(model=model, max_tokens=max_tokens, messages=messages)
+		if openai_chat_create:
+			resp = openai_chat_create(client, model=model, max_tokens=max_tokens, messages=messages)
+		else:
+			resp = client.chat.completions.create(model=model, max_tokens=max_tokens, messages=messages)
 		return (resp.choices[0].message.content or "").strip()
 
 	except Exception:
@@ -216,11 +242,11 @@ def complete_json(
 
 
 def supports_pdf_vision() -> bool:
-	"""True when the configured provider can read a PDF natively (Anthropic)."""
+	"""True when the configured provider can read a PDF natively."""
 	if not is_enabled():
 		return False
 	settings = get_settings()
-	return (settings.provider or "").strip().lower() == "anthropic"
+	return (settings.provider or "").strip() in ("Anthropic", GOOGLE_VERTEX_PROVIDER)
 
 
 def complete_pdf(
@@ -249,7 +275,7 @@ def complete_pdf(
 		return None
 
 	settings = get_settings()
-	api_key = _api_key(settings)
+	provider = (settings.provider or "").strip()
 	model = get_task_model(settings, task)
 	max_tokens = int(max_tokens or settings.max_tokens or 2000)
 	timeout = int(settings.timeout or 120)
@@ -259,8 +285,25 @@ def complete_pdf(
 		import base64
 
 		with open(path, "rb") as f:
-			pdf_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
+			pdf_bytes = f.read()
 
+		if provider == GOOGLE_VERTEX_PROVIDER:
+			if not google_vertex_generate_content:
+				frappe.log_error(
+					title="Tender AI: Google Vertex helper unavailable",
+					message="Install/enable smart_journal or provide google-genai support before using Google Vertex AI.",
+				)
+				return None
+			from google.genai import types
+
+			contents = [
+				_combined_prompt(prompt, system),
+				types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+			]
+			return google_vertex_generate_content(settings, model, contents, max_tokens=max_tokens).strip()
+
+		pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+		api_key = _api_key(settings)
 		import anthropic
 
 		kwargs = {"api_key": api_key, "timeout": timeout, "max_retries": 4}
@@ -345,6 +388,12 @@ def _extract_json(raw: str):
 		if salvaged:
 			return salvaged
 	return None
+
+
+def _combined_prompt(prompt: str, system: str | None = None) -> str:
+	if not system:
+		return prompt
+	return f"{system}\n\n{prompt}"
 
 
 def _salvage_json_array(text: str):
